@@ -1,0 +1,60 @@
+# Operating-system and editor files
+.DS_Store
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+*.swp
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.class
+*.pyc
+.history/
+
+# Flutter, Dart, and generated output
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+build/
+coverage/
+**/doc/api/
+**/ios/Flutter/.last_build_id
+app.*.symbols
+app.*.map.json
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+.bus_api.env
+bus_api.env
+*.secret
+*.secrets
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+android/key.properties
+android/app/upload-keystore.jks
+ios/Runner/GoogleService-Info.plist
+
+# Build artifacts and packages
+*.apk
+*.aab
+*.ipa
+*.dSYM/
+
+# Android and platform-specific generated files
+/android/app/debug
+/android/app/profile
+/android/app/release
+.swiftpm/
+migrate_working_dir/

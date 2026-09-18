@@ -1,0 +1,4 @@
+name = "forett-shuttle-api"
+main = "src/index.ts"
+compatibility_date = "2026-09-18"
+workers_dev = true
