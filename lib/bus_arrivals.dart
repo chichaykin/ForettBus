@@ -331,6 +331,133 @@ abstract interface class BusArrivalsRepository {
   Future<BusArrivalsSnapshot> fetch(Direction direction);
 }
 
+/// Live arrivals for user-configured trip cards. This intentionally accepts a
+/// stop code and a service allow-list, while the legacy direction API above
+/// remains unchanged for the Forett shuttle companion card.
+class StopArrivalsSnapshot {
+  const StopArrivalsSnapshot({
+    required this.stopCode,
+    required this.fetchedAt,
+    required this.routes,
+  });
+  final String stopCode;
+  final DateTime fetchedAt;
+  final List<BusRouteArrivals> routes;
+
+  bool isStale(DateTime now) =>
+      now.difference(fetchedAt) > const Duration(seconds: 60);
+}
+
+class HttpBusStopArrivalsRepository {
+  HttpBusStopArrivalsRepository({
+    String? baseUrl,
+    String? appApiKey,
+    http.Client? client,
+  }) : baseUrl = (baseUrl ?? const String.fromEnvironment('BUS_API_BASE_URL'))
+           .trim()
+           .replaceFirst(RegExp(r'/+$'), ''),
+       appApiKey = (appApiKey ?? const String.fromEnvironment('APP_API_KEY'))
+           .trim(),
+       _client = client ?? http.Client();
+
+  final String baseUrl;
+  final String appApiKey;
+  final http.Client _client;
+  final Map<String, Future<StopArrivalsSnapshot>> _requests = {};
+  final Map<String, DateTime> _requestedAt = {};
+
+  bool get isConfigured =>
+      Uri.tryParse(baseUrl)?.scheme == 'https' && appApiKey.isNotEmpty;
+
+  Future<StopArrivalsSnapshot> fetch(String stopCode) {
+    // Share both in-flight and completed requests across cards and directions.
+    // Failed requests are also throttled until the next polling interval.
+    final last = _requestedAt[stopCode];
+    if (last != null &&
+        BusSchedule.now().difference(last) < const Duration(seconds: 20)) {
+      return _requests[stopCode]!;
+    }
+    _requestedAt[stopCode] = BusSchedule.now();
+    return _requests[stopCode] = _fetch(stopCode);
+  }
+
+  Future<StopArrivalsSnapshot> _fetch(String stopCode) async {
+    if (!isConfigured || !RegExp(r'^\d{5}$').hasMatch(stopCode)) {
+      throw const BusArrivalsException(
+        BusArrivalsErrorType.configuration,
+        'Invalid stop configuration',
+      );
+    }
+    final uri = Uri.parse(
+      '$baseUrl/v1/arrivals',
+    ).replace(queryParameters: {'stopCode': stopCode});
+    final response = await _client
+        .get(
+          uri,
+          headers: {
+            'accept': 'application/json',
+            'authorization': 'Bearer $appApiKey',
+          },
+        )
+        .timeout(const Duration(seconds: 10));
+    if (response.statusCode != 200) {
+      throw const BusArrivalsException(
+        BusArrivalsErrorType.server,
+        'Arrivals unavailable',
+      );
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic> ||
+        decoded['routes'] is! List ||
+        decoded['stop'] is! Map ||
+        decoded['stop']['code'] != stopCode) {
+      throw const BusArrivalsException(
+        BusArrivalsErrorType.data,
+        'Invalid arrivals response',
+      );
+    }
+    final fetchedAt = DateTime.tryParse('${decoded['fetchedAt']}');
+    if (fetchedAt == null) {
+      throw const FormatException('Missing arrivals timestamp');
+    }
+    final routes = <BusRouteArrivals>[];
+    for (final raw in decoded['routes'] as List) {
+      if (raw is! Map ||
+          raw['serviceNo'] is! String ||
+          raw['arrivals'] is! List) {
+        continue;
+      }
+      final arrivals = <BusArrival>[];
+      for (final bus in raw['arrivals'] as List) {
+        if (bus is! Map || bus['monitored'] is! bool) continue;
+        final estimated = DateTime.tryParse('${bus['estimatedArrival']}');
+        if (estimated != null) {
+          arrivals.add(
+            BusArrival(
+              estimatedArrival: estimated,
+              monitored: bus['monitored'] as bool,
+            ),
+          );
+        }
+      }
+      arrivals.sort((a, b) => a.estimatedArrival.compareTo(b.estimatedArrival));
+      routes.add(
+        BusRouteArrivals(
+          serviceNumber: raw['serviceNo'] as String,
+          arrivals: List.unmodifiable(arrivals.take(3)),
+        ),
+      );
+    }
+    return StopArrivalsSnapshot(
+      stopCode: stopCode,
+      fetchedAt: fetchedAt,
+      routes: List.unmodifiable(routes),
+    );
+  }
+
+  void close() => _client.close();
+}
+
 class HttpBusArrivalsRepository implements BusArrivalsRepository {
   HttpBusArrivalsRepository({
     String? baseUrl,

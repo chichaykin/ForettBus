@@ -13,9 +13,11 @@ The primary validation target is an Android Pixel device. The schedule uses the
 - Direction-aware shuttle schedule for both routes.
 - Next-service information after the last shuttle and on Sundays.
 - Live ETA predictions for public buses 41 and 77.
+- User-configured trip cards with independent outbound/return directions,
+  multiple bus legs, and saved transfer points.
 - A clearly labelled scheduled timetable fallback when live data is unavailable.
 - Optional five-minute shuttle reminders with Android notifications.
-- Light and dark themes.
+- Light and dark themes, restored on startup together with the main direction.
 
 ## Architecture
 
@@ -23,6 +25,9 @@ The primary validation target is an Android Pixel device. The schedule uses the
   calculations.
 - `lib/notifications.dart` contains notification and exact-alarm handling.
 - `lib/bus_arrivals.dart` contains the live ETA client and static fallback.
+- `lib/trip_cards.dart` contains the versioned local trip-card model and
+  persistence controller; `lib/screens/trip_cards_screen.dart` contains the
+  editor and reorderable settings list.
 - `lib/screens/` contains the Home, Schedule, and Profile screens.
 - `worker/` contains the Cloudflare Worker that authenticates requests and
   proxies the required LTA arrival data.
@@ -70,9 +75,11 @@ npx wrangler secret put APP_API_KEY
 npx wrangler deploy
 ```
 
-The Worker accepts only the supported `/v1/arrivals` endpoint, directions,
-boarding stops, and routes. Configure secrets with Wrangler; never put secret
-values in `wrangler.toml`, source code, tests, or Git history.
+The Worker preserves the legacy direction-based 41/77 arrival endpoint and
+also accepts five-digit stop codes for custom cards. Place search, stop search
+and bus-only OneMap trip planning require the same app authentication. Configure `ONEMAP_TOKEN` as a
+Worker secret when route search is enabled; never put secret values in
+`wrangler.toml`, source code, tests, or Git history.
 
 ## Validation
 
@@ -88,7 +95,7 @@ integration-test run so the device does not retain a test entrypoint:
 
 ```bash
 flutter build apk --debug --dart-define-from-file=.bus_api.env
-flutter install --debug -d <device-id>
+adb -s <device-id> install -r build/app/outputs/flutter-apk/app-debug.apk
 ```
 
 ## Security notes
@@ -100,3 +107,24 @@ flutter install --debug -d <device-id>
   generated build output are excluded by `.gitignore`.
 - Before making a repository public, inspect both the working tree and Git
   history for credentials, private keys, personal data, and local configuration.
+
+## Trip card display and timing
+
+Cards keep both saved directions, their order and selection locally. The short
+card name labels the destination switch; the address remains in the editor.
+Home shows the first bus and the service sequence, with stops and walks in
+**Route details**. Edit a card to **Find alternatives**, then confirm with Save.
+Legacy operator-prefixed service labels are normalized when cards load.
+
+Stop snapshots are shared for 20 seconds; upstream data older than 60 seconds
+is stale. Bus selection includes the initial walk and a two-minute transfer
+buffer. If an older card lacks leg durations, the app shows stop predictions
+without claiming the connection is reachable or inventing a destination ETA.
+Choose a new route in the editor to obtain leg durations. No scheduled fallback
+is generated for custom stop/service combinations.
+
+OneMap routing uses an expiring Worker secret `ONEMAP_TOKEN`. Automatic token
+renewal is not implemented. The current stop search scans a limited LTA catalogue
+and route editing does not yet validate service/stop sequence against BusRoutes.
+Later connections outside LTA's prediction window show unavailable estimates;
+there is no automatic re-planning of the saved route.

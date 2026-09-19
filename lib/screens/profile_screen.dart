@@ -4,16 +4,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../notifications.dart';
+import '../trip_cards.dart';
+import 'trip_cards_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({
     super.key,
     required this.darkModeEnabled,
     required this.onDarkModeChanged,
+    required this.tripCardsController,
   });
 
   final bool darkModeEnabled;
   final ValueChanged<bool> onDarkModeChanged;
+  final TripCardsController tripCardsController;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -166,6 +170,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
         backgroundColor: theme.scaffoldBackgroundColor,
         elevation: 0,
         centerTitle: true,
+        actions: [
+          TextButton.icon(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) =>
+                    TripCardsScreen(controller: widget.tripCardsController),
+              ),
+            ),
+            icon: const Icon(Icons.view_list_outlined),
+            label: const Text('Cards'),
+          ),
+        ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(24),

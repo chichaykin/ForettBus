@@ -7,3 +7,4 @@ workers_dev = true
 #   npx wrangler secret put LTA_ACCOUNT_KEY
 #   npx wrangler secret put APP_API_KEY
 #   npx wrangler secret put APP_API_KEY_PREVIOUS
+#   npx wrangler secret put ONEMAP_TOKEN

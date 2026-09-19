@@ -7,7 +7,10 @@ import 'package:timezone/timezone.dart' as tz;
 import '../bus_arrivals.dart';
 import '../notifications.dart';
 import '../schedule.dart';
+import '../trip_cards.dart';
 import '../widgets/direction_toggle.dart';
+import '../widgets/trip_card_view.dart';
+import 'trip_cards_screen.dart';
 
 enum _ArrivalStatus { idle, loading, loaded, empty }
 
@@ -18,12 +21,16 @@ class HomeScreen extends StatefulWidget {
     this.direction = Direction.forettToBeautyWorld,
     required this.onDirectionChanged,
     this.arrivalRepository,
+    this.tripCardsController,
+    this.tripArrivalRepository,
   });
 
   final bool isActive;
   final Direction direction;
   final ValueChanged<Direction> onDirectionChanged;
   final BusArrivalsRepository? arrivalRepository;
+  final TripCardsController? tripCardsController;
+  final HttpBusStopArrivalsRepository? tripArrivalRepository;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -32,11 +39,14 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   late final BusArrivalsRepository _arrivalRepository;
   late final bool _ownsArrivalRepository;
+  late final HttpBusStopArrivalsRepository _tripArrivalRepository;
+  late final bool _ownsTripArrivalRepository;
 
   DateTime _now = BusSchedule.now();
   Timer? _timer;
   Timer? _arrivalTimer;
   bool _isAppActive = true;
+  bool _isEditorOpen = false;
   DateTime? _reminderBusTime;
   Direction? _reminderDirection;
   bool _isUpdatingReminder = false;
@@ -47,6 +57,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String? _arrivalNotice;
   bool _isFetchingArrivals = false;
   int _arrivalRequestRevision = 0;
+  final Map<String, StopArrivalsSnapshot> _tripStops = {};
+  bool _isFetchingTripArrivals = false;
+  int _tripArrivalRevision = 0;
 
   @override
   void initState() {
@@ -54,7 +67,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _ownsArrivalRepository = widget.arrivalRepository == null;
     _arrivalRepository =
         widget.arrivalRepository ?? HttpBusArrivalsRepository();
+    _ownsTripArrivalRepository = widget.tripArrivalRepository == null;
+    _tripArrivalRepository =
+        widget.tripArrivalRepository ?? HttpBusStopArrivalsRepository();
     WidgetsBinding.instance.addObserver(this);
+    widget.tripCardsController?.addListener(_handleTripCardsChanged);
     NotificationService().activeReminder.addListener(_handleReminderChanged);
     unawaited(_restoreReminder());
     if (widget.isActive) {
@@ -97,13 +114,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  bool get _shouldRun => widget.isActive && _isAppActive;
+  bool get _shouldRun => widget.isActive && _isAppActive && !_isEditorOpen;
 
   void _stopTimers() {
     _timer?.cancel();
     _timer = null;
     _arrivalTimer?.cancel();
     _arrivalTimer = null;
+    _tripArrivalRevision++;
   }
 
   void _refreshClock({bool rebuild = true}) {
@@ -128,10 +146,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _startArrivalPolling() {
     if (!_shouldRun) return;
     if (!_arrivalRepository.isConfigured) {
+      unawaited(_refreshTripArrivals());
       _useStaticFallback(widget.direction);
       _arrivalTimer?.cancel();
       _arrivalTimer = Timer.periodic(const Duration(seconds: 20), (_) {
         _useStaticFallback(widget.direction);
+        unawaited(_refreshTripArrivals());
       });
       return;
     }
@@ -139,7 +159,75 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     unawaited(_refreshArrivals());
     _arrivalTimer = Timer.periodic(const Duration(seconds: 20), (_) {
       unawaited(_refreshArrivals());
+      unawaited(_refreshTripArrivals());
     });
+    unawaited(_refreshTripArrivals());
+  }
+
+  void _handleTripCardsChanged() {
+    _tripArrivalRevision++;
+    if (!mounted) return;
+    setState(() => _tripStops.clear());
+    if (_shouldRun) unawaited(_refreshTripArrivals());
+  }
+
+  Future<void> _refreshTripArrivals() async {
+    final controller = widget.tripCardsController;
+    if (!_shouldRun ||
+        controller == null ||
+        !_tripArrivalRepository.isConfigured ||
+        _isFetchingTripArrivals) {
+      return;
+    }
+    final revision = ++_tripArrivalRevision;
+    final codes = controller.cards
+        .expand((card) => card.selectedPlan.legs)
+        .where((leg) => leg.isBus)
+        .map((leg) => leg.from.code)
+        .toSet();
+    if (codes.isEmpty) return;
+    setState(() => _isFetchingTripArrivals = true);
+    final results = await Future.wait(
+      codes.map((code) async {
+        try {
+          return await _tripArrivalRepository.fetch(code);
+        } on Object {
+          return null;
+        }
+      }),
+    );
+    if (!mounted) return;
+    setState(() {
+      _isFetchingTripArrivals = false;
+      if (revision == _tripArrivalRevision && _shouldRun) {
+        for (final snapshot in results.whereType<StopArrivalsSnapshot>()) {
+          _tripStops[snapshot.stopCode] = snapshot;
+        }
+      }
+    });
+    // A direction change while fetching needs a new snapshot. The repository
+    // shares/throttles stop requests, including across direction changes.
+    if (revision != _tripArrivalRevision && _shouldRun) {
+      unawaited(_refreshTripArrivals());
+    }
+  }
+
+  Future<void> _editTripCard(TripCard card) async {
+    _isEditorOpen = true;
+    _stopTimers();
+    final updated = await Navigator.of(context).push<TripCard>(
+      MaterialPageRoute(builder: (_) => TripCardEditor(card: card)),
+    );
+    if (!mounted) return;
+    if (updated != null) {
+      await widget.tripCardsController?.update(updated);
+      if (!mounted) return;
+    }
+    _isEditorOpen = false;
+    if (_shouldRun) {
+      _startTimer();
+      _startArrivalPolling();
+    }
   }
 
   Future<void> _refreshArrivals() async {
@@ -262,10 +350,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void dispose() {
     _stopTimers();
     WidgetsBinding.instance.removeObserver(this);
+    widget.tripCardsController?.removeListener(_handleTripCardsChanged);
     NotificationService().activeReminder.removeListener(_handleReminderChanged);
     if (_ownsArrivalRepository) {
       (_arrivalRepository as HttpBusArrivalsRepository).close();
     }
+    if (_ownsTripArrivalRepository) _tripArrivalRepository.close();
     super.dispose();
   }
 
@@ -345,7 +435,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (!showCountdown) return 'Stale';
 
     final duration = arrival.estimatedArrival.difference(_now);
-    if (duration < const Duration(minutes: 1)) return 'Arriving soon';
+    if (duration < const Duration(minutes: 1)) return 'Arriving';
     return 'in ${duration.inMinutes} min';
   }
 
@@ -620,8 +710,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       color = colors.error;
       updatedLabel = 'Updated ${_formatSingaporeTime(snapshot.fetchedAt)}';
     } else {
-      label = 'Live ETA';
-      color = colors.primary;
+      final arrivals = snapshot.routes
+          .expand((route) => route.arrivals)
+          .where((arrival) => !arrival.estimatedArrival.isBefore(_now));
+      final hasLive = arrivals.any((arrival) => arrival.monitored);
+      final hasScheduled = arrivals.any((arrival) => !arrival.monitored);
+      label = hasLive
+          ? (hasScheduled ? 'Live + scheduled' : 'Live ETA')
+          : 'Scheduled';
+      color = hasLive ? colors.primary : colors.tertiary;
       updatedLabel = 'Updated ${_formatSingaporeTime(snapshot.fetchedAt)}';
     }
 
@@ -799,6 +896,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  Widget _buildTripCard(TripCard card, ColorScheme colors) => TripCardView(
+    key: ValueKey(card.id),
+    card: card,
+    stops: _tripStops,
+    now: _now,
+    isLoading: _isFetchingTripArrivals,
+    onDirectionChanged: (direction) =>
+        widget.tripCardsController?.selectDirection(card.id, direction),
+    onEdit: () => _editTripCard(card),
+  );
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -839,6 +947,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ),
                   SizedBox(height: isCompact ? 12 : 16),
                   _buildPublicBusesCard(colors),
+                  if (widget.tripCardsController != null)
+                    AnimatedBuilder(
+                      animation: widget.tripCardsController!,
+                      builder: (context, _) => Column(
+                        children: [
+                          for (final card
+                              in widget.tripCardsController!.cards) ...[
+                            const SizedBox(height: 12),
+                            _buildTripCard(card, colors),
+                          ],
+                        ],
+                      ),
+                    ),
                 ],
               ),
             );
