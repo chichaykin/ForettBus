@@ -192,10 +192,13 @@ class NotificationService {
   /// longer contains its departure or marks its day unavailable.
   Future<void> cancelReminderIfInvalid() async {
     final reminder = activeReminder.value ?? await pendingBusReminder();
-    if (reminder == null) return;
+    if (reminder == null) {
+      await init();
+      await _plugin.cancel(id: _busReminderId);
+      return;
+    }
     if (!BusSchedule.isConfirmedOperatingDay(reminder.busTime) ||
         !BusSchedule.containsDeparture(reminder.busTime, reminder.direction)) {
       await cancelReminder();
-    }
   }
 }
