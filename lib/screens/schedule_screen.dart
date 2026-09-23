@@ -782,9 +782,9 @@ class _ScheduleImportReviewScreenState
             ),
           )
           .toList(),
-      holidayDates: widget.previousSchedule.holidayDates,
-      holidayStartYear: widget.previousSchedule.holidayStartYear,
-      holidayEndYear: widget.previousSchedule.holidayEndYear,
+      holidayDates: BusSchedule.active.value.holidayDates,
+      holidayStartYear: BusSchedule.active.value.holidayStartYear,
+      holidayEndYear: BusSchedule.active.value.holidayEndYear,
     );
     final errors = schedule.validate();
     if (errors.isNotEmpty) {
