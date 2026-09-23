@@ -130,12 +130,13 @@ class _ScheduleScreenState extends State<ScheduleScreen>
     _stopMinuteTimer();
     if (!widget.isActive) return;
     final now = widget.now();
-    final nextMinute = DateTime(
-      now.year,
-      now.month,
-      now.day,
-      now.hour,
-      now.minute + 1,
+    final nextMinute = now.add(
+      Duration(
+        minutes: 1,
+        seconds: -now.second,
+        milliseconds: -now.millisecond,
+        microseconds: -now.microsecond,
+      ),
     );
     _minuteTimer = Timer(nextMinute.difference(now), () {
       if (!mounted || !widget.isActive) return;
