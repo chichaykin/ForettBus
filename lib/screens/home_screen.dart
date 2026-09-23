@@ -71,6 +71,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _tripArrivalRepository =
         widget.tripArrivalRepository ?? HttpBusStopArrivalsRepository();
     WidgetsBinding.instance.addObserver(this);
+    BusSchedule.active.addListener(_handleScheduleChanged);
     widget.tripCardsController?.addListener(_handleTripCardsChanged);
     NotificationService().activeReminder.addListener(_handleReminderChanged);
     unawaited(_restoreReminder());
@@ -100,6 +101,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _arrivalNotice = null;
       if (_shouldRun) unawaited(_refreshArrivals());
     }
+  }
+
+  void _handleScheduleChanged() {
+    if (mounted) _refreshClock();
   }
 
   @override
@@ -350,6 +355,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void dispose() {
     _stopTimers();
     WidgetsBinding.instance.removeObserver(this);
+    BusSchedule.active.removeListener(_handleScheduleChanged);
     widget.tripCardsController?.removeListener(_handleTripCardsChanged);
     NotificationService().activeReminder.removeListener(_handleReminderChanged);
     if (_ownsArrivalRepository) {
@@ -454,6 +460,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     required bool isOperating,
     required DateTime? nextBus,
     required bool isReminderSet,
+    required bool hasHolidayCalendar,
   }) {
     final hasEnded = !isOperating || nextBus == null;
     if (hasEnded) {
@@ -599,7 +606,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ),
               const SizedBox(height: 24),
               ElevatedButton.icon(
-                onPressed: _isUpdatingReminder
+                onPressed: _isUpdatingReminder || !hasHolidayCalendar
                     ? null
                     : () => _toggleReminder(nextBus),
                 icon: _isUpdatingReminder
@@ -639,6 +646,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ),
                 ),
               ),
+              if (!hasHolidayCalendar) ...[
+                const SizedBox(height: 12),
+                Text(
+                  'Holiday calendar is unavailable for this date. Reminders are disabled.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: colors.onSurfaceVariant),
+                ),
+              ],
             ],
           ),
         ),
@@ -915,6 +930,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final nextBus = BusSchedule.getNextBus(_now, widget.direction);
     final isReminderSet =
         nextBus != null && _hasReminderFor(nextBus, widget.direction);
+    final hasHolidayCalendar = BusSchedule.hasHolidayCalendarFor(_now);
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -944,6 +960,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     isOperating: isOperating,
                     nextBus: nextBus,
                     isReminderSet: isReminderSet,
+                    hasHolidayCalendar: hasHolidayCalendar,
                   ),
                   SizedBox(height: isCompact ? 12 : 16),
                   _buildPublicBusesCard(colors),

@@ -88,6 +88,10 @@ class NotificationService {
     Direction direction,
   ) async {
     await init();
+    if (!BusSchedule.isConfirmedOperatingDay(busTime) ||
+        !BusSchedule.containsDeparture(busTime, direction)) {
+      return false;
+    }
     final scheduledTime = busTime.subtract(const Duration(minutes: 5));
     if (!scheduledTime.isAfter(BusSchedule.now())) return false;
 
@@ -145,7 +149,12 @@ class NotificationService {
           BusSchedule.singaporeLocation,
           milliseconds,
         );
-        if (!busTime.isAfter(BusSchedule.now())) {
+        if (!busTime.isAfter(BusSchedule.now()) ||
+            !BusSchedule.isConfirmedOperatingDay(busTime) ||
+            !BusSchedule.containsDeparture(
+              busTime,
+              Direction.values.byName(directionName),
+            )) {
           activeReminder.value = null;
           return null;
         }
@@ -177,5 +186,16 @@ class NotificationService {
     await init();
     await _plugin.cancel(id: _busReminderId);
     activeReminder.value = null;
+  }
+
+  /// Removes an already scheduled reminder when an imported timetable no
+  /// longer contains its departure or marks its day unavailable.
+  Future<void> cancelReminderIfInvalid() async {
+    final reminder = activeReminder.value ?? await pendingBusReminder();
+    if (reminder == null) return;
+    if (!BusSchedule.isConfirmedOperatingDay(reminder.busTime) ||
+        !BusSchedule.containsDeparture(reminder.busTime, reminder.direction)) {
+      await cancelReminder();
+    }
   }
 }

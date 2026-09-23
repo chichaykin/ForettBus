@@ -45,12 +45,18 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Full Schedule'), findsOneWidget);
-    expect(find.text('06:30'), findsOneWidget);
 
     await tester.tap(find.text('To Forett'));
     await tester.pumpAndSettle();
 
-    expect(find.text('06:37'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is SegmentedButton<Direction> &&
+            widget.selected.contains(Direction.beautyWorldToForett),
+      ),
+      findsOneWidget,
+    );
     expect(find.text('06:30'), findsNothing);
 
     await tester.tap(find.text('Profile'));

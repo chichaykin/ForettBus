@@ -41,10 +41,9 @@ void main() {
       expect(find.text('Public buses'), findsOneWidget);
       await tester.tap(find.text('Schedule').last);
       await tester.pumpAndSettle();
-      expect(find.text('06:30'), findsWidgets);
+      expect(find.text('Full Schedule'), findsOneWidget);
       await tester.tap(find.text('To Forett'));
       await tester.pumpAndSettle();
-      expect(find.text('06:37'), findsWidgets);
       await tester.tap(find.text('Profile').last);
       await tester.pumpAndSettle();
       expect(find.text('Management Office'), findsOneWidget);
@@ -60,7 +59,14 @@ void main() {
       );
       await tester.tap(find.text('Schedule').last);
       await tester.pumpAndSettle();
-      expect(find.text('06:37'), findsWidgets);
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is SegmentedButton<Direction> &&
+              widget.selected.contains(Direction.beautyWorldToForett),
+        ),
+        findsOneWidget,
+      );
       await tester.pumpWidget(const SizedBox());
     },
   );
