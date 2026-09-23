@@ -84,6 +84,20 @@ class ScheduleImporter {
       String valueAt(int index) => index < row.length ? row[index].trim() : '';
       final forettTime = _normalizeTime(valueAt(forettIndex));
       final beautyTime = _normalizeTime(valueAt(beautyIndex));
+      if (breakStartIndex != -1) {
+        final start = _normalizeTime(valueAt(breakStartIndex));
+        final end = _normalizeTime(valueAt(breakEndIndex));
+        if (start.isEmpty && end.isEmpty) {
+          // No break on this row.
+        } else if (start.isEmpty || end.isEmpty) {
+          throw ScheduleImportException(
+            'Row ${rowIndex + 1} has an incomplete break.',
+          );
+        } else {
+          final item = ScheduleBreak(start: start, end: end);
+          if (!breaks.contains(item)) breaks.add(item);
+        }
+      }
       if (forettTime.isEmpty && beautyTime.isEmpty) continue;
       if (forettTime.isEmpty || beautyTime.isEmpty) {
         throw ScheduleImportException(
@@ -92,18 +106,6 @@ class ScheduleImporter {
       }
       forett.add(forettTime);
       beauty.add(beautyTime);
-      if (breakStartIndex != -1) {
-        final start = _normalizeTime(valueAt(breakStartIndex));
-        final end = _normalizeTime(valueAt(breakEndIndex));
-        if (start.isEmpty && end.isEmpty) continue;
-        if (start.isEmpty || end.isEmpty) {
-          throw ScheduleImportException(
-            'Row ${rowIndex + 1} has an incomplete break.',
-          );
-        }
-        final item = ScheduleBreak(start: start, end: end);
-        if (!breaks.contains(item)) breaks.add(item);
-      }
     }
     final notices = <String>[];
     if (breakStartIndex == -1) {

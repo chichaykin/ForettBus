@@ -21,6 +21,22 @@ forett,beauty_world,break_start,break_end
     ]);
   });
 
+  test('preserves break-only CSV rows during import', () {
+    final imported = ScheduleImporter.fromCsv('''
+forett,beauty_world,break_start,break_end
+06:30,06:37,09:30,10:00
+06:50,06:57,,
+,,13:00,14:30
+''');
+
+    expect(imported.forettTimes, ['06:30', '06:50']);
+    expect(imported.beautyWorldTimes, ['06:37', '06:57']);
+    expect(imported.breaks, const [
+      ScheduleBreak(start: '09:30', end: '10:00'),
+      ScheduleBreak(start: '13:00', end: '14:30'),
+    ]);
+  });
+
   test('reports CSV files without break columns for review', () {
     final imported = ScheduleImporter.fromCsv('''
 forett,beauty_world
