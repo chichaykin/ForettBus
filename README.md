@@ -7,6 +7,15 @@ and 77.
 The primary validation target is an Android Pixel device. The schedule uses the
 `Asia/Singapore` time zone and runs Monday through Saturday.
 
+## Preview
+
+<p align="center">
+  <img src="assets/screenshots/home-0810.png" alt="Forett Shuttle Home screen at 08:10, showing the 08:30 departure" width="360">
+</p>
+
+The Android emulator preview shows the Home screen at 08:10 Singapore time,
+with the next shuttle departure at 08:30 and the scheduled public-bus fallback.
+
 ## Features
 
 - Shuttle countdown with the exact departure time.
