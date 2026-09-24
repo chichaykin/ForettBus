@@ -200,5 +200,6 @@ class NotificationService {
     if (!BusSchedule.isConfirmedOperatingDay(reminder.busTime) ||
         !BusSchedule.containsDeparture(reminder.busTime, reminder.direction)) {
       await cancelReminder();
+    }
   }
 }
