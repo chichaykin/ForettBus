@@ -44,6 +44,13 @@ with the next shuttle departure at 08:30 and the scheduled public-bus fallback.
 The Flutter app talks only to the HTTPS Worker. LTA credentials stay in
 Cloudflare Worker secrets and are never shipped in the app.
 
+## Privacy
+
+The public privacy policy for the Android app is maintained at
+[`docs/privacy/index.html`](docs/privacy/index.html). When GitHub Pages is
+enabled for this repository, publish the `docs/` folder from the default branch
+and use the resulting `/privacy/` URL in Google Play Console.
+
 ## Run the Flutter app
 
 Install Flutter and Android tooling, then install dependencies:
