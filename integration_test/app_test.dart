@@ -7,6 +7,7 @@ import 'package:shuttle_bus/bus_arrivals.dart';
 import 'package:shuttle_bus/schedule.dart';
 import 'package:shuttle_bus/screens/home_screen.dart';
 import 'package:shuttle_bus/trip_cards.dart';
+import 'package:shuttle_bus/widgets/direction_toggle.dart';
 
 import '../test/support/trip_fixtures.dart';
 
@@ -60,12 +61,8 @@ void main() {
       await tester.tap(find.text('Schedule').last);
       await tester.pumpAndSettle();
       expect(
-        find.byWidgetPredicate(
-          (widget) =>
-              widget is SegmentedButton<Direction> &&
-              widget.selected.contains(Direction.beautyWorldToForett),
-        ),
-        findsOneWidget,
+        tester.widget<DirectionToggle>(find.byType(DirectionToggle)).direction,
+        Direction.beautyWorldToForett,
       );
       await tester.pumpWidget(const SizedBox());
     },

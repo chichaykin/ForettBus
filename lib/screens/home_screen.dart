@@ -482,12 +482,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               children: [
                 Icon(Icons.directions_bus_outlined, color: colors.primary),
                 const SizedBox(width: 8),
-                Text(
-                  'Forett Shuttle',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: colors.onSurface,
+                Flexible(
+                  child: Text(
+                    'Forett Shuttle',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: colors.onSurface,
+                    ),
                   ),
                 ),
               ],
@@ -552,12 +554,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 children: [
                   Icon(Icons.directions_bus_outlined, color: colors.primary),
                   const SizedBox(width: 8),
-                  Text(
-                    'Forett Shuttle',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      color: colors.onSurface,
+                  Flexible(
+                    child: Text(
+                      'Forett Shuttle',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: colors.onSurface,
+                      ),
                     ),
                   ),
                 ],
@@ -670,6 +674,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final scheduledLabel = arrival.isScheduled ? ' · Scheduled' : '';
     final arrivalTime = _formatSingaporeTime(arrival.estimatedArrival);
     final arrivalStatus = _formatArrival(arrival, showCountdown: showCountdown);
+    final statusStyle = TextStyle(
+      fontSize: 14,
+      fontWeight: FontWeight.w700,
+      color: colors.onSurface,
+    );
     return Tooltip(
       message: 'Route $serviceNumber · $arrivalTime$scheduledLabel',
       child: Semantics(
@@ -677,30 +686,71 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         label: 'Route $serviceNumber, $arrivalStatus, arrives at $arrivalTime',
         child: Container(
           constraints: const BoxConstraints(minWidth: 68, minHeight: 44),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
           decoration: BoxDecoration(
             color: colors.surface,
             border: Border.all(color: colors.outlineVariant),
             borderRadius: BorderRadius.circular(12),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final compactStatus = arrival.isScheduled
+                  ? 'Sched.'
+                  : arrivalStatus.startsWith('in ')
+                  ? arrivalStatus.substring(3)
+                  : arrivalStatus == 'Arriving'
+                  ? 'Due'
+                  : arrivalStatus;
+              final statusCandidates = <String>[
                 arrivalStatus,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: colors.onSurface,
-                ),
-              ),
-              Text(
-                arrivalTime,
-                style: TextStyle(fontSize: 11, color: colors.onSurfaceVariant),
-              ),
-            ],
+                compactStatus,
+                if (arrival.isScheduled) 'Sch.',
+                if (arrivalStatus.startsWith('in '))
+                  '${arrival.estimatedArrival.difference(_now).inMinutes}m',
+                if (arrivalStatus == 'Stale') 'Old',
+                '•',
+              ];
+              bool fits(String value) {
+                final painter = TextPainter(
+                  text: TextSpan(
+                    text: value,
+                    style: DefaultTextStyle.of(
+                      context,
+                    ).style.merge(statusStyle),
+                  ),
+                  textDirection: Directionality.of(context),
+                  textScaler: MediaQuery.textScalerOf(context),
+                  maxLines: 1,
+                )..layout();
+                final result = painter.width <= constraints.maxWidth;
+                painter.dispose();
+                return result;
+              }
+
+              final visibleStatus = statusCandidates.firstWhere(
+                fits,
+                orElse: () => statusCandidates.last,
+              );
+
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    visibleStatus,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: statusStyle,
+                  ),
+                  Text(
+                    arrivalTime,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ),
@@ -739,19 +789,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     return Padding(
       padding: const EdgeInsets.only(top: 6),
-      child: Row(
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 8,
+        runSpacing: 2,
         children: [
-          Icon(Icons.circle, size: 9, color: color),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: color,
-            ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.circle, size: 9, color: color),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: color,
+                ),
+              ),
+            ],
           ),
-          const Spacer(),
           Text(
             updatedLabel,
             style: TextStyle(fontSize: 11, color: colors.onSurfaceVariant),
@@ -884,21 +942,36 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         ),
                       ),
                       Expanded(
-                        child: Row(
-                          children: [
-                            for (final arrival in route.arrivals)
-                              Expanded(
-                                child: Padding(
-                                  padding: const EdgeInsets.only(left: 6),
-                                  child: _buildArrivalBadge(
-                                    arrival,
-                                    colors,
-                                    serviceNumber: route.serviceNumber,
-                                    showCountdown: !isFallback && !isStale,
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final textScale =
+                                MediaQuery.textScalerOf(context).scale(14) / 14;
+                            final columns =
+                                (constraints.maxWidth / (80 * textScale))
+                                    .floor()
+                                    .clamp(1, route.arrivals.length);
+                            const spacing = 6.0;
+                            final badgeWidth =
+                                (constraints.maxWidth -
+                                    spacing * (columns - 1)) /
+                                columns;
+                            return Wrap(
+                              spacing: spacing,
+                              runSpacing: spacing,
+                              children: [
+                                for (final arrival in route.arrivals)
+                                  SizedBox(
+                                    width: badgeWidth,
+                                    child: _buildArrivalBadge(
+                                      arrival,
+                                      colors,
+                                      serviceNumber: route.serviceNumber,
+                                      showCountdown: !isFallback && !isStale,
+                                    ),
                                   ),
-                                ),
-                              ),
-                          ],
+                              ],
+                            );
+                          },
                         ),
                       ),
                     ],

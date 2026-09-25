@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart';
 import 'package:shuttle_bus/bus_arrivals.dart';
 import 'package:shuttle_bus/main.dart';
 import 'package:shuttle_bus/schedule.dart';
 import 'package:shuttle_bus/screens/home_screen.dart';
+import 'package:shuttle_bus/widgets/direction_toggle.dart';
 
 class _UnavailableArrivalsRepository implements BusArrivalsRepository {
   @override
@@ -50,12 +52,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.byWidgetPredicate(
-        (widget) =>
-            widget is SegmentedButton<Direction> &&
-            widget.selected.contains(Direction.beautyWorldToForett),
-      ),
-      findsOneWidget,
+      tester.widget<DirectionToggle>(find.byType(DirectionToggle)).direction,
+      Direction.beautyWorldToForett,
     );
     expect(find.text('06:30'), findsNothing);
 
@@ -186,5 +184,64 @@ void main() {
     expect(find.text(DateFormat('HH:mm').format(arrival)), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('arrival labels fit narrow screens with larger text', (
+    tester,
+  ) async {
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final now = BusSchedule.now();
+    final snapshot = BusArrivalsSnapshot(
+      direction: Direction.forettToBeautyWorld,
+      stop: BusStopConfig.forDirection(Direction.forettToBeautyWorld),
+      fetchedAt: now,
+      routes: [
+        BusRouteArrivals(
+          serviceNumber: '41',
+          arrivals: [
+            for (var index = 1; index <= 3; index++)
+              BusArrival(
+                estimatedArrival: now.add(Duration(minutes: index * 5)),
+                monitored: false,
+              ),
+          ],
+        ),
+      ],
+    );
+
+    for (final width in [393.0, 320.0]) {
+      tester.view.physicalSize = Size(width, 852);
+      tester.view.devicePixelRatio = 1;
+      for (final scale in [1.0, 1.5]) {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: MediaQuery(
+              data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+              child: HomeScreen(
+                onDirectionChanged: (_) {},
+                arrivalRepository: _LiveArrivalsRepository(snapshot),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final badges = find.byWidgetPredicate(
+          (widget) =>
+              widget is Text &&
+              widget.style?.fontSize == 14 &&
+              const {'Scheduled', 'Sched.', 'Sch.', '•'}.contains(widget.data),
+        );
+        expect(badges, findsNWidgets(3));
+        for (final element in badges.evaluate()) {
+          final render = element.renderObject;
+          expect(render, isA<RenderParagraph>());
+          expect((render as RenderParagraph).didExceedMaxLines, isFalse);
+        }
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      }
+    }
   });
 }
