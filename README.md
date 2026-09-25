@@ -25,21 +25,24 @@ with the next shuttle departure at 08:30 and the scheduled public-bus fallback.
 - User-configured trip cards with independent outbound/return directions,
   multiple bus legs, and saved transfer points.
 - A clearly labelled scheduled timetable fallback when live data is unavailable.
-- Optional five-minute shuttle reminders with Android notifications.
+- Optional five-minute shuttle reminders using native Android alarms or Web
+  Push from an installed PWA.
 - Light and dark themes, restored on startup together with the main direction.
 
 ## Architecture
 
 - `lib/schedule.dart` contains the shuttle timetable and Singapore time-zone
   calculations.
-- `lib/notifications.dart` contains notification and exact-alarm handling.
+- `lib/notifications.dart` is the shared notification facade; conditional
+  native and Web backends contain exact-alarm and Web Push handling.
 - `lib/bus_arrivals.dart` contains the live ETA client and static fallback.
 - `lib/trip_cards.dart` contains the versioned local trip-card model and
   persistence controller; `lib/screens/trip_cards_screen.dart` contains the
   editor and reorderable settings list.
 - `lib/screens/` contains the Home, Schedule, and Profile screens.
-- `worker/` contains the Cloudflare Worker that authenticates requests and
-  proxies the required LTA arrival data.
+- `worker/` contains the existing protected transport Worker and a separate Web
+  entrypoint for static assets, the same-origin proxy, D1 reminders and Queue
+  delivery.
 
 The Flutter app talks only to the HTTPS Worker. LTA credentials stay in
 Cloudflare Worker secrets and are never shipped in the app.
@@ -79,6 +82,21 @@ files, or include it in an issue, screenshot, APK, or log.
 Without the local define file, the app remains usable with the bundled scheduled
 fallback for routes 41 and 77.
 
+## Build the Web app
+
+The Web build intentionally does not use `.bus_api.env`. It calls `/api` on the
+site origin, while the Web Worker holds the transport credential.
+
+```bash
+./tool/build_web.sh
+```
+
+This creates a standard JavaScript Flutter release, injects the generated asset
+list into the single offline/push service worker and rejects output containing
+secret-name markers. See [`WEB_DEPLOYMENT.md`](WEB_DEPLOYMENT.md) for test and
+production Cloudflare setup. Installation, help and Web privacy pages are part
+of the same build at `/install.html`, `/help.html` and `/privacy.html`.
+
 ## Deploy the Worker
 
 From `worker/`:
@@ -96,6 +114,11 @@ also accepts five-digit stop codes for custom cards. Place search, stop search
 and bus-only OneMap trip planning require the same app authentication. Configure `ONEMAP_TOKEN` as a
 Worker secret when route search is enabled; never put secret values in
 `wrangler.toml`, source code, tests, or Git history.
+
+The Web Worker uses its own deployment configuration. Copy
+`worker/wrangler.web.toml.example` to the ignored `worker/wrangler.web.toml`
+only after creating separate D1 and Queue resources. The checked-in migration
+is `worker/migrations/0001_web.sql`.
 
 ## Validation
 
