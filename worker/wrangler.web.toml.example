@@ -1,0 +1,63 @@
+name = "forett-shuttle-web"
+main = "src/web.ts"
+compatibility_date = "2026-09-18"
+workers_dev = true
+
+[assets]
+directory = "../build/web"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+
+[[services]]
+binding = "TRANSPORT"
+service = "forett-shuttle-api"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "forett-shuttle-web-production"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+migrations_dir = "migrations"
+
+[[queues.producers]]
+binding = "REMINDER_QUEUE"
+queue = "forett-shuttle-reminders-production"
+
+[[queues.consumers]]
+queue = "forett-shuttle-reminders-production"
+max_batch_size = 1
+max_batch_timeout = 1
+max_retries = 3
+
+[triggers]
+crons = ["* * * * *"]
+
+[vars]
+PUSH_ENABLED = "true"
+
+[[ratelimits]]
+name = "READ_RATE_LIMITER"
+namespace_id = "1001"
+simple = { limit = 120, period = 60 }
+
+[[ratelimits]]
+name = "WRITE_RATE_LIMITER"
+namespace_id = "1002"
+simple = { limit = 20, period = 60 }
+
+[[ratelimits]]
+name = "PLAN_RATE_LIMITER"
+namespace_id = "1005"
+simple = { limit = 10, period = 60 }
+
+[[ratelimits]]
+name = "IP_RATE_LIMITER"
+namespace_id = "1003"
+simple = { limit = 1200, period = 60 }
+
+[[ratelimits]]
+name = "SESSION_RATE_LIMITER"
+namespace_id = "1004"
+simple = { limit = 120, period = 60 }
+
+# Configure these with `wrangler secret put --config wrangler.web.toml`:
+# WEB_TRANSPORT_API_KEY, VAPID_PRIVATE_KEY, VAPID_PUBLIC_KEY, VAPID_SUBJECT
