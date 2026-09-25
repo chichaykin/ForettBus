@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:timezone/timezone.dart' as tz;
 
 import 'schedule.dart';
+import 'transport_config.dart';
 
 enum BusArrivalsErrorType { configuration, unauthorized, network, server, data }
 
@@ -353,21 +354,19 @@ class HttpBusStopArrivalsRepository {
     String? baseUrl,
     String? appApiKey,
     http.Client? client,
-  }) : baseUrl = (baseUrl ?? const String.fromEnvironment('BUS_API_BASE_URL'))
-           .trim()
-           .replaceFirst(RegExp(r'/+$'), ''),
-       appApiKey = (appApiKey ?? const String.fromEnvironment('APP_API_KEY'))
-           .trim(),
+  }) : _config = baseUrl == null && appApiKey == null
+           ? TransportConfig.defaults()
+           : TransportConfig.explicit(baseUrl ?? '', appApiKey ?? ''),
        _client = client ?? http.Client();
 
-  final String baseUrl;
-  final String appApiKey;
+  final TransportConfig _config;
+  String get baseUrl => _config.baseUrl;
+  String get appApiKey => _config.appApiKey;
   final http.Client _client;
   final Map<String, Future<StopArrivalsSnapshot>> _requests = {};
   final Map<String, DateTime> _requestedAt = {};
 
-  bool get isConfigured =>
-      Uri.tryParse(baseUrl)?.scheme == 'https' && appApiKey.isNotEmpty;
+  bool get isConfigured => _config.isConfigured;
 
   Future<StopArrivalsSnapshot> fetch(String stopCode) {
     // Share both in-flight and completed requests across cards and directions.
@@ -388,17 +387,9 @@ class HttpBusStopArrivalsRepository {
         'Invalid stop configuration',
       );
     }
-    final uri = Uri.parse(
-      '$baseUrl/v1/arrivals',
-    ).replace(queryParameters: {'stopCode': stopCode});
+    final uri = _config.uri('/v1/arrivals', {'stopCode': stopCode});
     final response = await _client
-        .get(
-          uri,
-          headers: {
-            'accept': 'application/json',
-            'authorization': 'Bearer $appApiKey',
-          },
-        )
+        .get(uri, headers: _config.headers())
         .timeout(const Duration(seconds: 10));
     if (response.statusCode != 200) {
       throw const BusArrivalsException(
@@ -463,37 +454,19 @@ class HttpBusArrivalsRepository implements BusArrivalsRepository {
     String? baseUrl,
     String? appApiKey,
     http.Client? client,
-  }) : baseUrl =
-           (baseUrl ??
-                   const String.fromEnvironment(
-                     'BUS_API_BASE_URL',
-                     defaultValue: '',
-                   ))
-               .trim()
-               .replaceFirst(RegExp(r'/+$'), ''),
-       appApiKey =
-           (appApiKey ??
-                   const String.fromEnvironment(
-                     'APP_API_KEY',
-                     defaultValue: '',
-                   ))
-               .trim(),
+  }) : _config = baseUrl == null && appApiKey == null
+           ? TransportConfig.defaults()
+           : TransportConfig.explicit(baseUrl ?? '', appApiKey ?? ''),
        _client = client ?? http.Client();
 
-  final String baseUrl;
-  final String appApiKey;
+  final TransportConfig _config;
+  String get baseUrl => _config.baseUrl;
+  String get appApiKey => _config.appApiKey;
   final http.Client _client;
 
   @override
   bool get isConfigured {
-    final uri = Uri.tryParse(baseUrl);
-    return uri != null &&
-        uri.scheme == 'https' &&
-        uri.host.isNotEmpty &&
-        uri.userInfo.isEmpty &&
-        !uri.hasQuery &&
-        !uri.hasFragment &&
-        appApiKey.isNotEmpty;
+    return _config.isConfigured;
   }
 
   @override
@@ -505,23 +478,12 @@ class HttpBusArrivalsRepository implements BusArrivalsRepository {
       );
     }
 
-    final baseUri = Uri.parse(baseUrl);
-    final path = '${baseUri.path.replaceFirst(RegExp(r'/+$'), '')}/v1/arrivals';
-    final uri = baseUri.replace(
-      path: path,
-      queryParameters: <String, String>{'direction': direction.name},
-    );
+    final uri = _config.uri('/v1/arrivals', {'direction': direction.name});
 
     http.Response response;
     try {
       response = await _client
-          .get(
-            uri,
-            headers: <String, String>{
-              'accept': 'application/json',
-              'authorization': 'Bearer $appApiKey',
-            },
-          )
+          .get(uri, headers: _config.headers())
           .timeout(const Duration(seconds: 10));
     } on TimeoutException {
       throw const BusArrivalsException(

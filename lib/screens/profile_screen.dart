@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../notifications.dart';
 import '../trip_cards.dart';
@@ -34,22 +35,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void initState() {
     super.initState();
     NotificationService().activeReminder.addListener(_handleReminderChanged);
+    NotificationService().state.addListener(_handleNotificationStateChanged);
     unawaited(_restoreNotificationState());
   }
 
   void _handleReminderChanged() {
     if (!mounted) return;
 
-    final hasReminder = NotificationService().activeReminder.value != null;
-    if (_notificationsEnabled == hasReminder) return;
-    setState(() => _notificationsEnabled = hasReminder);
+    setState(() {});
+  }
+
+  void _handleNotificationStateChanged() {
+    if (!mounted) return;
+    final subscribed = NotificationService().state.value.subscribed;
+    if (_notificationsEnabled == subscribed) return;
+    setState(() => _notificationsEnabled = subscribed);
   }
 
   Future<void> _restoreNotificationState() async {
     try {
       final reminder = await NotificationService().pendingBusReminder();
       if (!mounted) return;
-      if (reminder != null) setState(() => _notificationsEnabled = true);
+      final subscribed = NotificationService().state.value.subscribed;
+      if (reminder != null || subscribed) {
+        setState(() => _notificationsEnabled = true);
+      }
     } catch (_) {
       // The profile screen remains usable when the platform cannot query alarms.
     }
@@ -68,7 +78,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           return;
         }
       } else {
-        await NotificationService().cancelReminder();
+        await NotificationService().disableNotifications();
       }
 
       if (!mounted) return;
@@ -88,6 +98,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void dispose() {
     NotificationService().activeReminder.removeListener(_handleReminderChanged);
+    NotificationService().state.removeListener(_handleNotificationStateChanged);
     super.dispose();
   }
 
@@ -102,6 +113,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     required String label,
     required String value,
     required IconData icon,
+    required Uri actionUri,
   }) async {
     await showDialog<void>(
       context: context,
@@ -131,6 +143,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: const Text('Close'),
           ),
           FilledButton.icon(
+            onPressed: () async {
+              final launched = await launchUrl(actionUri);
+              if (!dialogContext.mounted) return;
+              if (launched) Navigator.of(dialogContext).pop();
+            },
+            icon: Icon(
+              actionUri.scheme == 'mailto'
+                  ? Icons.email_outlined
+                  : Icons.call_outlined,
+            ),
+            label: Text(actionUri.scheme == 'mailto' ? 'Send' : 'Call'),
+          ),
+          FilledButton.tonalIcon(
             onPressed: () async {
               await Clipboard.setData(ClipboardData(text: value));
               if (!dialogContext.mounted) return;
@@ -207,11 +232,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             contentPadding: EdgeInsets.zero,
             secondary: const Icon(Icons.notifications_outlined),
             title: const Text('Notification Preferences'),
-            subtitle: Text(
-              _notificationsEnabled
-                  ? 'Bus reminder notifications enabled'
-                  : 'Bus reminder notifications disabled',
-            ),
+            subtitle: Text(_notificationSubtitle()),
             value: _notificationsEnabled,
             onChanged: _isUpdatingNotifications
                 ? null
@@ -242,6 +263,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               label: 'Email',
               value: _managementEmail,
               icon: Icons.email_outlined,
+              actionUri: Uri(scheme: 'mailto', path: _managementEmail),
             ),
           ),
           ListTile(
@@ -254,6 +276,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               label: 'Phone',
               value: _securityPhone,
               icon: Icons.security_outlined,
+              actionUri: Uri(scheme: 'tel', path: _securityPhone),
             ),
           ),
           ListTile(
@@ -266,6 +289,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               label: 'Forett Security',
               value: _securityPhone,
               icon: Icons.report_problem_outlined,
+              actionUri: Uri(scheme: 'tel', path: _securityPhone),
             ),
           ),
           const SizedBox(height: 24),
@@ -279,6 +303,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ],
       ),
     );
+  }
+
+  String _notificationSubtitle() {
+    final service = NotificationService();
+    final state = service.state.value;
+    final reminder = service.activeReminder.value;
+    switch (state.readiness) {
+      case NotificationReadiness.unsupported:
+        return 'Notifications are not supported in this browser';
+      case NotificationReadiness.installRequired:
+        return 'Add Forett Shuttle to the Home Screen first';
+      case NotificationReadiness.permissionDenied:
+        return 'Permission is blocked in system settings';
+      case NotificationReadiness.unknown:
+        return 'Bus reminder notifications disabled';
+      case NotificationReadiness.ready:
+        if (reminder != null) {
+          final hour = reminder.busTime.hour.toString().padLeft(2, '0');
+          final minute = reminder.busTime.minute.toString().padLeft(2, '0');
+          return 'Reminder set for $hour:$minute';
+        }
+        return state.subscribed
+            ? 'Bus reminder notifications enabled'
+            : 'Bus reminder notifications disabled';
+    }
   }
 }
 

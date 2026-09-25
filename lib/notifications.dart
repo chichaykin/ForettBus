@@ -1,178 +1,118 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/timezone.dart' as tz;
 
+import 'notification_backend.dart';
+import 'notification_backend_factory.dart';
 import 'schedule.dart';
 
-class BusReminder {
-  const BusReminder({required this.busTime, required this.direction});
-
-  final DateTime busTime;
-  final Direction direction;
-}
+export 'notification_backend.dart'
+    show BusReminder, NotificationBackendState, NotificationReadiness;
 
 class NotificationService {
-  static const int _busReminderId = 0;
+  static const _pendingCancelKey = 'pending_notification_cancel.v1';
+  static const _activeReminderKey = 'active_notification_reminder.v1';
   static final NotificationService _instance = NotificationService._internal();
 
   factory NotificationService() => _instance;
 
-  NotificationService._internal();
+  NotificationService._internal() : _backend = createNotificationBackend();
 
-  final FlutterLocalNotificationsPlugin _plugin =
-      FlutterLocalNotificationsPlugin();
+  @visibleForTesting
+  NotificationService.withBackend(NotificationBackend backend)
+    : _backend = backend;
+
+  final NotificationBackend _backend;
   Future<void>? _initFuture;
-  final ValueNotifier<BusReminder?> activeReminder = ValueNotifier(null);
+  int _operationRevision = 0;
 
-  Future<void> init() {
-    return _initFuture ??= _initializeWithReset();
-  }
+  final ValueNotifier<BusReminder?> activeReminder = ValueNotifier(null);
+  final ValueNotifier<NotificationBackendState> state = ValueNotifier(
+    const NotificationBackendState(),
+  );
+  final ValueNotifier<bool> operationInProgress = ValueNotifier(false);
+
+  Future<void> init() => _initFuture ??= _initializeWithReset();
 
   Future<void> _initializeWithReset() async {
     try {
-      await _initialize();
-    } catch (_) {
+      await _restoreLocalReminder();
+      state.value = await _backend.initialize();
+      await _retryPendingCancellation();
+    } on Object {
       _initFuture = null;
       rethrow;
     }
   }
 
-  Future<void> _initialize() async {
-    tz.setLocalLocation(BusSchedule.singaporeLocation);
-
-    const AndroidInitializationSettings initializationSettingsAndroid =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
-    const DarwinInitializationSettings initializationSettingsIOS =
-        DarwinInitializationSettings(
-          requestAlertPermission: false,
-          requestBadgePermission: false,
-          requestSoundPermission: false,
-        );
-    const InitializationSettings initializationSettings =
-        InitializationSettings(
-          android: initializationSettingsAndroid,
-          iOS: initializationSettingsIOS,
-        );
-
-    await _plugin.initialize(settings: initializationSettings);
-  }
-
   Future<bool> requestPermission() async {
-    await init();
-    final iosResult = await _plugin
-        .resolvePlatformSpecificImplementation<
-          IOSFlutterLocalNotificationsPlugin
-        >()
-        ?.requestPermissions(alert: true, badge: true, sound: true);
-
-    final androidImplementation = _plugin
-        .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >();
-
-    if (androidImplementation != null) {
-      final notificationsGranted =
-          await androidImplementation.requestNotificationsPermission() ?? true;
-      if (!notificationsGranted) return false;
-
-      return await androidImplementation.requestExactAlarmsPermission() ?? true;
+    final revision = ++_operationRevision;
+    operationInProgress.value = true;
+    try {
+      // The Web backend invokes the browser prompt before awaiting network I/O
+      // so Safari keeps the originating user gesture.
+      final next = await _backend.requestPermission();
+      if (revision == _operationRevision) state.value = next;
+      return next.readiness == NotificationReadiness.ready;
+    } on Object catch (error) {
+      if (revision == _operationRevision) {
+        state.value = NotificationBackendState(
+          readiness: state.value.readiness,
+          subscribed: state.value.subscribed,
+          syncError: error.toString(),
+        );
+      }
+      rethrow;
+    } finally {
+      if (revision == _operationRevision) operationInProgress.value = false;
     }
-
-    return iosResult ?? true;
   }
 
   Future<bool> scheduleBusReminder(
     DateTime busTime,
     Direction direction,
   ) async {
-    await init();
     if (!BusSchedule.isConfirmedOperatingDay(busTime) ||
         !BusSchedule.containsDeparture(busTime, direction)) {
       return false;
     }
-    final scheduledTime = busTime.subtract(const Duration(minutes: 5));
-    if (!scheduledTime.isAfter(BusSchedule.now())) return false;
-
-    final dirStr = direction == Direction.forettToBeautyWorld
-        ? 'Forett'
-        : "Beauty World MRT";
-
-    await _plugin.zonedSchedule(
-      id: _busReminderId,
-      title: 'Bus arriving soon!',
-      body: 'The shuttle from $dirStr will depart in 5 minutes.',
-      payload: jsonEncode({
-        'busTime': busTime.millisecondsSinceEpoch,
-        'direction': direction.name,
-      }),
-      scheduledDate: tz.TZDateTime.from(scheduledTime, tz.local),
-      notificationDetails: const NotificationDetails(
-        android: AndroidNotificationDetails(
-          'bus_reminder_channel',
-          'Bus Reminders',
-          channelDescription: 'Reminders for shuttle bus departures',
-          importance: Importance.max,
-          priority: Priority.high,
-        ),
-        iOS: DarwinNotificationDetails(),
-      ),
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-    );
-    activeReminder.value = BusReminder(busTime: busTime, direction: direction);
-    return true;
+    if (!busTime
+        .subtract(const Duration(minutes: 5))
+        .isAfter(BusSchedule.now())) {
+      return false;
+    }
+    await init();
+    final revision = ++_operationRevision;
+    operationInProgress.value = true;
+    final reminder = BusReminder(busTime: busTime, direction: direction);
+    try {
+      final savedReminder = await _backend.schedule(reminder);
+      if (revision == _operationRevision) {
+        activeReminder.value = savedReminder;
+        await _saveActiveReminder(savedReminder);
+      }
+      return true;
+    } finally {
+      if (revision == _operationRevision) operationInProgress.value = false;
+    }
   }
 
   Future<BusReminder?> pendingBusReminder() async {
     await init();
-    final requests = await _plugin.pendingNotificationRequests();
-
-    for (final request in requests) {
-      if (request.id != _busReminderId || request.payload == null) continue;
-
-      try {
-        final payload = jsonDecode(request.payload!);
-        if (payload is! Map<String, dynamic>) {
-          activeReminder.value = null;
-          return null;
-        }
-
-        final milliseconds = payload['busTime'];
-        final directionName = payload['direction'];
-        if (milliseconds is! int || directionName is! String) {
-          activeReminder.value = null;
-          return null;
-        }
-
-        final busTime = tz.TZDateTime.fromMillisecondsSinceEpoch(
-          BusSchedule.singaporeLocation,
-          milliseconds,
-        );
-        if (!busTime.isAfter(BusSchedule.now()) ||
-            !BusSchedule.isConfirmedOperatingDay(busTime) ||
-            !BusSchedule.containsDeparture(
-              busTime,
-              Direction.values.byName(directionName),
-            )) {
-          activeReminder.value = null;
-          return null;
-        }
-
-        final reminder = BusReminder(
-          busTime: busTime,
-          direction: Direction.values.byName(directionName),
-        );
-        activeReminder.value = reminder;
-        return reminder;
-      } catch (_) {
-        activeReminder.value = null;
-        return null;
-      }
+    final reminder = await _backend.pendingReminder();
+    if (reminder == null ||
+        !reminder.busTime.isAfter(BusSchedule.now()) ||
+        !BusSchedule.isConfirmedOperatingDay(reminder.busTime) ||
+        !BusSchedule.containsDeparture(reminder.busTime, reminder.direction)) {
+      activeReminder.value = null;
+      await _clearActiveReminder();
+      return null;
     }
-
-    activeReminder.value = null;
-    return null;
+    activeReminder.value = reminder;
+    await _saveActiveReminder(reminder);
+    return reminder;
   }
 
   void expireReminderIfNeeded(DateTime now) {
@@ -183,23 +123,110 @@ class NotificationService {
   }
 
   Future<void> cancelReminder() async {
-    await init();
-    await _plugin.cancel(id: _busReminderId);
-    activeReminder.value = null;
+    final revision = ++_operationRevision;
+    operationInProgress.value = true;
+    final reminderId = activeReminder.value?.id;
+    try {
+      await init();
+      await _backend.cancelReminder(reminderId: reminderId);
+      await _clearPendingCancellation();
+      await _clearActiveReminder();
+      if (revision == _operationRevision) activeReminder.value = null;
+    } on Object {
+      if (reminderId != null) {
+        final preferences = await SharedPreferences.getInstance();
+        await preferences.setString(_pendingCancelKey, reminderId);
+      }
+      rethrow;
+    } finally {
+      if (revision == _operationRevision) operationInProgress.value = false;
+    }
   }
 
-  /// Removes an already scheduled reminder when an imported timetable no
-  /// longer contains its departure or marks its day unavailable.
+  Future<void> disableNotifications() async {
+    await init();
+    await _backend.disable();
+    await _clearActiveReminder();
+    activeReminder.value = null;
+    state.value = NotificationBackendState(readiness: state.value.readiness);
+  }
+
   Future<void> cancelReminderIfInvalid() async {
     final reminder = activeReminder.value ?? await pendingBusReminder();
-    if (reminder == null) {
-      await init();
-      await _plugin.cancel(id: _busReminderId);
-      return;
-    }
+    if (reminder == null) return;
     if (!BusSchedule.isConfirmedOperatingDay(reminder.busTime) ||
         !BusSchedule.containsDeparture(reminder.busTime, reminder.direction)) {
       await cancelReminder();
     }
+  }
+
+  Future<void> _retryPendingCancellation() async {
+    final preferences = await SharedPreferences.getInstance();
+    final reminderId = preferences.getString(_pendingCancelKey);
+    if (reminderId == null || reminderId.isEmpty) return;
+    try {
+      await _backend.cancelReminder(reminderId: reminderId);
+      await preferences.remove(_pendingCancelKey);
+      if (activeReminder.value?.id == reminderId) activeReminder.value = null;
+    } on Object {
+      // Keep the specific reminder ID. A later initialization retries it and
+      // cannot accidentally cancel a newer reminder.
+    }
+  }
+
+  Future<void> _clearPendingCancellation() async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.remove(_pendingCancelKey);
+  }
+
+  Future<void> _saveActiveReminder(BusReminder reminder) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(
+      _activeReminderKey,
+      jsonEncode({
+        'id': reminder.id,
+        'busTime': reminder.busTime.millisecondsSinceEpoch,
+        'direction': reminder.direction.name,
+      }),
+    );
+  }
+
+  Future<void> _restoreLocalReminder() async {
+    final preferences = await SharedPreferences.getInstance();
+    final raw = preferences.getString(_activeReminderKey);
+    if (raw == null) return;
+    try {
+      final value = jsonDecode(raw);
+      if (value is! Map<String, dynamic> ||
+          value['busTime'] is! int ||
+          value['direction'] is! String) {
+        throw const FormatException('Invalid reminder');
+      }
+      final reminder = BusReminder(
+        id: value['id'] is String ? value['id'] as String : null,
+        busTime: tz.TZDateTime.fromMillisecondsSinceEpoch(
+          BusSchedule.singaporeLocation,
+          value['busTime'] as int,
+        ),
+        direction: Direction.values.byName(value['direction'] as String),
+      );
+      if (!reminder.busTime.isAfter(BusSchedule.now()) ||
+          !BusSchedule.isConfirmedOperatingDay(reminder.busTime) ||
+          !BusSchedule.containsDeparture(
+            reminder.busTime,
+            reminder.direction,
+          )) {
+        await preferences.remove(_activeReminderKey);
+        return;
+      }
+      activeReminder.value = reminder;
+    } on Object {
+      await preferences.remove(_activeReminderKey);
+    }
+  }
+
+  Future<void> _clearActiveReminder() async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.remove(_activeReminderKey);
   }
 }

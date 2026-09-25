@@ -4,12 +4,11 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
-import 'package:image_picker/image_picker.dart';
 
 import '../notifications.dart';
 import '../schedule.dart';
 import '../schedule_import.dart';
+import '../schedule_photo_import.dart';
 import '../widgets/direction_toggle.dart';
 
 class ScheduleScreen extends StatefulWidget {
@@ -281,15 +280,22 @@ class _ScheduleScreenState extends State<ScheduleScreen>
         actions: [
           PopupMenuButton<_Action>(
             onSelected: (action) => _runAction(context, action),
-            itemBuilder: (context) => const [
-              PopupMenuItem(value: _Action.photo, child: Text('Import photo')),
-              PopupMenuItem(value: _Action.csv, child: Text('Import CSV')),
-              PopupMenuItem(
+            itemBuilder: (context) => [
+              if (schedulePhotoImportSupported)
+                const PopupMenuItem(
+                  value: _Action.photo,
+                  child: Text('Import photo'),
+                ),
+              const PopupMenuItem(
+                value: _Action.csv,
+                child: Text('Import CSV'),
+              ),
+              const PopupMenuItem(
                 value: _Action.export,
                 child: Text('Export CSV sample'),
               ),
-              PopupMenuDivider(),
-              PopupMenuItem(
+              const PopupMenuDivider(),
+              const PopupMenuItem(
                 value: _Action.restore,
                 child: Text('Restore original'),
               ),
@@ -308,7 +314,9 @@ class _ScheduleScreenState extends State<ScheduleScreen>
           ),
           _ImportHeader(
             hasHolidayCalendar: schedule.hasHolidayCalendarFor(widget.now()),
-            onPhoto: () => _runAction(context, _Action.photo),
+            onPhoto: schedulePhotoImportSupported
+                ? () => _runAction(context, _Action.photo)
+                : null,
             onCsv: () => _runAction(context, _Action.csv),
           ),
           Expanded(
@@ -367,7 +375,7 @@ class _ScheduleScreenState extends State<ScheduleScreen>
   }
 
   Future<void> _photo(BuildContext context) async {
-    final source = await showModalBottomSheet<ImageSource>(
+    final source = await showModalBottomSheet<SchedulePhotoSource>(
       context: context,
       builder: (sheetContext) => SafeArea(
         child: Wrap(
@@ -375,12 +383,14 @@ class _ScheduleScreenState extends State<ScheduleScreen>
             ListTile(
               leading: const Icon(Icons.camera_alt_outlined),
               title: const Text('Take photo'),
-              onTap: () => Navigator.pop(sheetContext, ImageSource.camera),
+              onTap: () =>
+                  Navigator.pop(sheetContext, SchedulePhotoSource.camera),
             ),
             ListTile(
               leading: const Icon(Icons.photo_library_outlined),
               title: const Text('Choose from gallery'),
-              onTap: () => Navigator.pop(sheetContext, ImageSource.gallery),
+              onTap: () =>
+                  Navigator.pop(sheetContext, SchedulePhotoSource.gallery),
             ),
           ],
         ),
@@ -388,32 +398,9 @@ class _ScheduleScreenState extends State<ScheduleScreen>
     );
     if (source == null || !context.mounted) return;
     try {
-      final image = await ImagePicker().pickImage(
-        source: source,
-        imageQuality: 100,
-      );
-      if (image == null || !context.mounted) return;
-      final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
-      try {
-        final result = await recognizer.processImage(
-          InputImage.fromFilePath(image.path),
-        );
-        final imported = ScheduleImporter.fromOcrLines(
-          result.blocks
-              .expand((block) => block.lines)
-              .map(
-                (line) => OcrLine(
-                  text: line.text,
-                  centerX: line.boundingBox.center.dx,
-                ),
-              )
-              .toList(),
-        );
-        if (context.mounted) {
-          await _review(context, imported, 'Photo');
-        }
-      } finally {
-        recognizer.close();
+      final imported = await importSchedulePhoto(source);
+      if (imported != null && context.mounted) {
+        await _review(context, imported, 'Photo');
       }
     } on ScheduleImportException catch (error) {
       if (context.mounted) {
@@ -499,8 +486,17 @@ class _ScheduleScreenState extends State<ScheduleScreen>
     );
     if (approved != true) return;
     await BusSchedule.restoreOriginal();
-    await NotificationService().cancelReminderIfInvalid();
-    if (context.mounted) _message(context, 'Original schedule restored');
+    try {
+      await NotificationService().cancelReminderIfInvalid();
+      if (context.mounted) _message(context, 'Original schedule restored');
+    } on Object {
+      if (context.mounted) {
+        _message(
+          context,
+          'Schedule restored; reminder cancellation is waiting for a connection.',
+        );
+      }
+    }
   }
 
   Future<void> _review(
@@ -508,7 +504,7 @@ class _ScheduleScreenState extends State<ScheduleScreen>
     ImportedSchedule imported,
     String source,
   ) async {
-    final saved = await Navigator.of(context).push<bool>(
+    final saved = await Navigator.of(context).push<String>(
       MaterialPageRoute(
         builder: (context) => ScheduleImportReviewScreen(
           imported: imported,
@@ -517,7 +513,14 @@ class _ScheduleScreenState extends State<ScheduleScreen>
         ),
       ),
     );
-    if (saved == true && context.mounted) _message(context, 'Schedule updated');
+    if (!context.mounted) return;
+    if (saved == 'saved') _message(context, 'Schedule updated');
+    if (saved == 'cancelPending') {
+      _message(
+        context,
+        'Schedule saved; reminder cancellation is waiting for a connection.',
+      );
+    }
   }
 
   void _message(BuildContext context, String text) {
@@ -532,12 +535,12 @@ enum _Action { photo, csv, export, restore }
 class _ImportHeader extends StatelessWidget {
   const _ImportHeader({
     required this.hasHolidayCalendar,
-    required this.onPhoto,
+    this.onPhoto,
     required this.onCsv,
   });
 
   final bool hasHolidayCalendar;
-  final VoidCallback onPhoto;
+  final VoidCallback? onPhoto;
   final VoidCallback onCsv;
 
   @override
@@ -564,11 +567,12 @@ class _ImportHeader extends StatelessWidget {
           Wrap(
             spacing: 4,
             children: [
-              TextButton.icon(
-                onPressed: onPhoto,
-                icon: const Icon(Icons.photo_camera_outlined),
-                label: const Text('Import photo'),
-              ),
+              if (onPhoto != null)
+                TextButton.icon(
+                  onPressed: onPhoto,
+                  icon: const Icon(Icons.photo_camera_outlined),
+                  label: const Text('Import photo'),
+                ),
               TextButton.icon(
                 onPressed: onCsv,
                 icon: const Icon(Icons.upload_file_outlined),
@@ -797,9 +801,14 @@ class _ScheduleImportReviewScreenState
     });
     try {
       await BusSchedule.save(schedule);
-      await NotificationService().cancelReminderIfInvalid();
+      var result = 'saved';
+      try {
+        await NotificationService().cancelReminderIfInvalid();
+      } on Object {
+        result = 'cancelPending';
+      }
       if (mounted) {
-        Navigator.pop(context, true);
+        Navigator.pop(context, result);
       }
     } on Object {
       if (mounted) {

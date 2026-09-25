@@ -277,9 +277,11 @@ class BusSchedule {
     final requestClient = client ?? http.Client();
     try {
       final response = await requestClient.get(
-        Uri.parse(
-          'https://data.gov.sg/api/action/datastore_search?resource_id=d_8ef23381f9417e4d4254ee8b4dcdb176&limit=200',
-        ),
+        kIsWeb
+            ? Uri.base.resolve('/api/holidays')
+            : Uri.parse(
+                'https://data.gov.sg/api/action/datastore_search?resource_id=d_8ef23381f9417e4d4254ee8b4dcdb176&limit=200',
+              ),
       );
       if (response.statusCode != 200) return;
       final payload = jsonDecode(response.body);

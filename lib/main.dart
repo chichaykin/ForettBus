@@ -63,7 +63,7 @@ class _ShuttleBusAppState extends State<ShuttleBusApp> {
     super.initState();
     _settings = widget.initialSettings ?? _defaultSettings();
     _darkModeEnabled = _settings.darkModeEnabled;
-    _currentDirection = _settings.direction;
+    _currentDirection = _directionFromLaunchUri() ?? _settings.direction;
     _tripCardsController = TripCardsController();
     unawaited(_tripCardsController.load());
     BusSchedule.active.addListener(_validateReminderAfterScheduleChange);
@@ -73,6 +73,16 @@ class _ShuttleBusAppState extends State<ShuttleBusApp> {
     // Direct widget construction is useful in tests and previews. The real
     // entry point loads settings before runApp in main().
     return AppSettings.defaults();
+  }
+
+  Direction? _directionFromLaunchUri() {
+    final value = Uri.base.queryParameters['direction'];
+    if (value == null) return null;
+    try {
+      return Direction.values.byName(value);
+    } on ArgumentError {
+      return null;
+    }
   }
 
   @override

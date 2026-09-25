@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 
 import 'trip_cards.dart';
 import 'schedule.dart';
+import 'transport_config.dart';
 import 'package:timezone/timezone.dart' as tz;
 
 class TripPlanningException implements Exception {
@@ -28,25 +29,17 @@ class PlaceSearchResult {
 
 class TripPlannerClient {
   TripPlannerClient({String? baseUrl, String? appApiKey, http.Client? client})
-    : baseUrl =
-          (baseUrl ??
-                  const String.fromEnvironment(
-                    'BUS_API_BASE_URL',
-                    defaultValue: '',
-                  ))
-              .trim()
-              .replaceFirst(RegExp(r'/+$'), ''),
-      appApiKey =
-          (appApiKey ??
-                  const String.fromEnvironment('APP_API_KEY', defaultValue: ''))
-              .trim(),
+    : _config = baseUrl == null && appApiKey == null
+          ? TransportConfig.defaults()
+          : TransportConfig.explicit(baseUrl ?? '', appApiKey ?? ''),
       _client = client ?? http.Client();
 
-  final String baseUrl;
-  final String appApiKey;
+  final TransportConfig _config;
+  String get baseUrl => _config.baseUrl;
+  String get appApiKey => _config.appApiKey;
   final http.Client _client;
 
-  bool get isConfigured => baseUrl.isNotEmpty && appApiKey.isNotEmpty;
+  bool get isConfigured => _config.isConfigured;
 
   Future<List<PlaceSearchResult>> searchPlaces(String query) async {
     if (!isConfigured) {
@@ -197,7 +190,7 @@ class TripPlannerClient {
   }
 
   Future<http.Response> _get(String path, Map<String, String> query) async {
-    final uri = Uri.parse('$baseUrl$path').replace(queryParameters: query);
+    final uri = _config.uri(path, query);
     try {
       final response = await _client
           .get(uri, headers: _headers())
@@ -214,7 +207,7 @@ class TripPlannerClient {
   }
 
   Future<http.Response> _post(String path, Map<String, dynamic> body) async {
-    final uri = Uri.parse('$baseUrl$path');
+    final uri = _config.uri(path);
     try {
       final response = await _client
           .post(
@@ -234,10 +227,7 @@ class TripPlannerClient {
     }
   }
 
-  Map<String, String> _headers() => {
-    'accept': 'application/json',
-    'authorization': 'Bearer $appApiKey',
-  };
+  Map<String, String> _headers() => _config.headers();
 
   void close() => _client.close();
 }
