@@ -40,4 +40,3 @@ WHERE status IN ('active', 'queued', 'sending');
 CREATE INDEX due_reminders ON reminders(status, send_at, locked_until);
 CREATE INDEX reminders_by_installation ON reminders(installation_id, updated_at DESC);
 CREATE INDEX expired_installations ON installations(expires_at);
-
