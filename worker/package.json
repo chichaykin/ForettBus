@@ -7,6 +7,7 @@
     "deploy": "wrangler deploy",
     "dev:web": "wrangler dev --config wrangler.web.toml",
     "deploy:web": "wrangler deploy --config wrangler.web.toml",
+    "deploy:web:production": "wrangler deploy --config wrangler.web.production.toml",
     "d1:local": "wrangler d1 migrations apply forett-shuttle-web-production --local --config wrangler.web.toml",
     "build:web-assets": "node scripts/inject-service-worker.mjs",
     "test": "vitest run",

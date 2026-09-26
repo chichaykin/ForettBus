@@ -15,7 +15,7 @@ service = "forett-shuttle-api"
 [[d1_databases]]
 binding = "DB"
 database_name = "forett-shuttle-web-production"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "REPLACE_WITH_PRODUCTION_D1_DATABASE_ID"
 migrations_dir = "migrations"
 
 [[queues.producers]]
@@ -32,32 +32,33 @@ max_retries = 3
 crons = ["* * * * *"]
 
 [vars]
-PUSH_ENABLED = "true"
+PUSH_ENABLED = "false"
 
 [[ratelimits]]
 name = "READ_RATE_LIMITER"
-namespace_id = "1001"
+namespace_id = "2001"
 simple = { limit = 120, period = 60 }
 
 [[ratelimits]]
 name = "WRITE_RATE_LIMITER"
-namespace_id = "1002"
+namespace_id = "2002"
 simple = { limit = 20, period = 60 }
 
 [[ratelimits]]
 name = "PLAN_RATE_LIMITER"
-namespace_id = "1005"
+namespace_id = "2005"
 simple = { limit = 10, period = 60 }
 
 [[ratelimits]]
 name = "IP_RATE_LIMITER"
-namespace_id = "1003"
+namespace_id = "2003"
 simple = { limit = 2400, period = 60 }
 
 [[ratelimits]]
 name = "SESSION_RATE_LIMITER"
-namespace_id = "1004"
+namespace_id = "2004"
 simple = { limit = 120, period = 60 }
 
-# Configure these with `wrangler secret put --config wrangler.web.toml`:
+# Copy to the ignored wrangler.web.production.toml after creating production
+# resources. Configure secrets with `wrangler secret put --config ...`:
 # WEB_TRANSPORT_API_KEY, VAPID_PRIVATE_KEY, VAPID_PUBLIC_KEY, VAPID_SUBJECT

@@ -120,6 +120,13 @@ The Web Worker uses its own deployment configuration. Copy
 only after creating separate D1 and Queue resources. The checked-in migration
 is `worker/migrations/0001_web.sql`.
 
+Production Web deployment uses a separate ignored
+`worker/wrangler.web.production.toml`, copied from
+`worker/wrangler.web.production.toml.example`. Its intended permanent origin is
+`https://forett-shuttle-web.forett-shuttle-api.workers.dev`; verify the deploy
+output before publishing that URL. Residents can export and restore their
+local cards, schedule and preferences from Profile as a JSON backup.
+
 ## Validation
 
 ```bash
