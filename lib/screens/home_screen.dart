@@ -245,6 +245,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _useStaticFallback(direction);
       return;
     }
+    if (_arrivalSnapshot == null) {
+      _useStaticFallback(direction);
+    }
     final requestRevision = ++_arrivalRequestRevision;
     _isFetchingArrivals = true;
     if (mounted) {
@@ -804,12 +807,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             children: [
               Icon(Icons.circle, size: 9, color: color),
               const SizedBox(width: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: color,
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: color,
+                  ),
                 ),
               ),
             ],
@@ -901,7 +908,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             const SizedBox(height: 6),
             if (isFallback)
               Text(
-                _arrivalNotice ?? 'Scheduled timetable · live data unavailable',
+                _arrivalNotice ??
+                    (_isFetchingArrivals
+                        ? 'Scheduled times · checking live arrivals'
+                        : 'Scheduled timetable · live data unavailable'),
                 style: TextStyle(color: colors.tertiary),
               )
             else if (!_arrivalRepository.isConfigured)

@@ -25,14 +25,13 @@ const result = await injectManifest({
   globPatterns: [
     "**/*.{html,js,json,css,png,svg,woff,woff2,wasm}",
   ],
-  // Flutter ships several alternative renderer bundles. Precache the regular
-  // CanvasKit and Skwasm paths; fetching every variant delayed service worker
-  // activation long enough to break push setup on a fresh Chrome install.
+  // The current Web build uses CanvasKit. Safari loads the regular bundle,
+  // while Chrome may choose the Chromium bundle. Both must be cached offline.
   globIgnores: [
     "service-worker.js",
-    "canvaskit/chromium/**",
     "canvaskit/experimental_webparagraph/**",
     "canvaskit/wimp.*",
+    "canvaskit/skwasm.*",
     "canvaskit/skwasm_heavy.*",
   ],
   maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,

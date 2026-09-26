@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -31,6 +33,16 @@ class _LiveArrivalsRepository implements BusArrivalsRepository {
 
   @override
   Future<BusArrivalsSnapshot> fetch(Direction direction) async => snapshot;
+}
+
+class _PendingArrivalsRepository implements BusArrivalsRepository {
+  final completer = Completer<BusArrivalsSnapshot>();
+
+  @override
+  bool get isConfigured => true;
+
+  @override
+  Future<BusArrivalsSnapshot> fetch(Direction direction) => completer.future;
 }
 
 void main() {
@@ -115,6 +127,34 @@ void main() {
     expect(find.text('Scheduled timetable'), findsOneWidget);
     expect(find.textContaining(RegExp(r'^in \d+ min')), findsNothing);
 
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('shows scheduled bus times while live arrivals are pending', (
+    tester,
+  ) async {
+    final repository = _PendingArrivalsRepository();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: HomeScreen(
+          onDirectionChanged: (_) {},
+          arrivalRepository: repository,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Public buses'), findsOneWidget);
+    expect(find.text('Scheduled timetable'), findsOneWidget);
+    expect(
+      find.text('Scheduled times · checking live arrivals'),
+      findsOneWidget,
+    );
+
+    repository.completer.completeError(
+      const BusArrivalsException(BusArrivalsErrorType.network, 'offline'),
+    );
+    await tester.pump();
     await tester.pumpWidget(const SizedBox());
   });
 

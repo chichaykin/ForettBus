@@ -90,6 +90,13 @@ Last updated: 2026-09-26 (Asia/Singapore)
 - [x] Tapping the production notification opened Home immediately without a
   white screen or Safari toolbar; a real iPhone screenshot confirms the Home
   layout and live public-bus arrivals.
+- [x] Corrected offline startup: Flutter now loads CanvasKit from the app
+  origin, the service worker precaches the regular and Chromium renderer
+  bundles, and offline navigations with a direction query use the cached app
+  shell. Fresh Chrome profiles opened Home offline on both published HTTPS
+  origins after completing the online cache.
+- [x] Home shows the supported 41/77 Scheduled fallback immediately while a
+  live request is pending, including on a narrow screen with larger text.
 - [x] Updated the reminder button to `Remind me (~5 min before)` because Web
   Push delivery depends on the network and iOS scheduling. The installed iPhone
   PWA picked up the update without reinstalling, and the user confirmed its

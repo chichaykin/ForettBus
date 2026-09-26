@@ -41,6 +41,10 @@ self.addEventListener("fetch", (event) => {
   event.respondWith((async () => {
     const cached = await caches.match(event.request);
     if (cached) return cached;
+    if (event.request.mode === "navigate") {
+      const appShell = await caches.match("/");
+      if (appShell) return appShell;
+    }
     const response = await fetch(event.request);
     if (response.ok && response.type === "basic") {
       const cache = await caches.open(CACHE_NAME);

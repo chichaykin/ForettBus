@@ -39,4 +39,39 @@ describe("Web service worker", () => {
     expect(urls).toHaveLength(4);
     expect(urls).toContain(`${origin}/`);
   });
+
+  it("serves the cached app shell for an offline navigation with a query", async () => {
+    const origin = "https://forett.example";
+    const shell = new Response("cached Home");
+    const match = vi.fn(async (request: { url?: string } | string) =>
+      request === "/" ? shell : undefined);
+    const networkFetch = vi.fn(async () => { throw new Error("offline"); });
+    const handlers = new Map<string, (event: {
+      request: { method: string; mode: string; url: string };
+      respondWith(value: Promise<Response>): void;
+    }) => void>();
+    const source = await readFile(new URL("../../web/service-worker-src.js", import.meta.url), "utf8");
+    runInNewContext(source, {
+      self: {
+        location: { origin },
+        __WB_MANIFEST: [],
+        addEventListener: (type: string, handler: (event: {
+          request: { method: string; mode: string; url: string };
+          respondWith(value: Promise<Response>): void;
+        }) => void) => { handlers.set(type, handler); },
+      },
+      URL,
+      caches: { match },
+      fetch: networkFetch,
+    });
+
+    let response: Promise<Response> | undefined;
+    handlers.get("fetch")!({
+      request: { method: "GET", mode: "navigate", url: `${origin}/?direction=beautyWorldToForett` },
+      respondWith: (value) => { response = value; },
+    });
+
+    expect(await response?.then((value) => value.text())).toBe("cached Home");
+    expect(networkFetch).not.toHaveBeenCalled();
+  });
 });

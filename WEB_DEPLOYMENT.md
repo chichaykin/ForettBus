@@ -81,6 +81,10 @@ per-session limit. The IP limit remains as a separate abuse guard.
 - Install from Safari, grant notifications from the installed app, schedule a
   future departure, close the PWA, and lock the phone.
 - Confirm replacement and cancellation from a second app launch.
+- Open the installed app online until the service worker has cached the app
+  shell and local CanvasKit files. Close it, disconnect Wi-Fi and mobile data,
+  then launch from the Home Screen icon. Home, the timetable, and saved local
+  data should open; live arrivals and new push delivery require a connection.
 - Exercise a shared-IP scenario with 100 simulated installations and verify
   transport and place-planning limits are applied per session.
 - Run 100 due reminders through a test-only delivery stub; never target resident
