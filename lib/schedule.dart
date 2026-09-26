@@ -264,8 +264,15 @@ class BusSchedule {
   static Future<void> save(ShuttleSchedule schedule) async {
     final errors = schedule.validate();
     if (errors.isNotEmpty) throw FormatException(errors.first);
+    final preferences = _preferences;
+    if (preferences != null) {
+      final saved = await preferences.setString(
+        _storageKey,
+        jsonEncode(schedule.toJson()),
+      );
+      if (!saved) throw StateError('Could not save the timetable');
+    }
     active.value = schedule;
-    await _preferences?.setString(_storageKey, jsonEncode(schedule.toJson()));
   }
 
   static Future<void> restoreOriginal() => save(ShuttleSchedule.original());

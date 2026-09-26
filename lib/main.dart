@@ -129,6 +129,13 @@ class _ShuttleBusAppState extends State<ShuttleBusApp> {
         },
         direction: _currentDirection,
         onDirectionChanged: _setDirection,
+        appSettings: _settings,
+        onAppSettingsRestored: () {
+          setState(() {
+            _darkModeEnabled = _settings.darkModeEnabled;
+            _currentDirection = _settings.direction;
+          });
+        },
         tripCardsController: _tripCardsController,
       ),
     );
@@ -148,6 +155,8 @@ class MainAppScreen extends StatefulWidget {
     required this.onDarkModeChanged,
     required this.direction,
     required this.onDirectionChanged,
+    required this.appSettings,
+    required this.onAppSettingsRestored,
     required this.tripCardsController,
   });
 
@@ -155,6 +164,8 @@ class MainAppScreen extends StatefulWidget {
   final ValueChanged<bool> onDarkModeChanged;
   final Direction direction;
   final ValueChanged<Direction> onDirectionChanged;
+  final AppSettings appSettings;
+  final VoidCallback onAppSettingsRestored;
   final TripCardsController tripCardsController;
 
   @override
@@ -218,6 +229,10 @@ class _MainAppScreenState extends State<MainAppScreen>
               ProfileScreen(
                 darkModeEnabled: widget.darkModeEnabled,
                 onDarkModeChanged: widget.onDarkModeChanged,
+                direction: widget.direction,
+                appSettings: widget.appSettings,
+                onDirectionChanged: widget.onDirectionChanged,
+                onAppSettingsRestored: widget.onAppSettingsRestored,
                 tripCardsController: widget.tripCardsController,
               ),
             ],

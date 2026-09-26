@@ -71,6 +71,26 @@ class AppSettings {
     await _persist();
   }
 
+  Future<void> restoreFromBackup({
+    required bool darkModeEnabled,
+    required Direction direction,
+  }) async {
+    final preferences = _preferences;
+    if (preferences != null) {
+      final saved = await preferences.setString(
+        _storageKey,
+        jsonEncode({
+          'version': 1,
+          'darkModeEnabled': darkModeEnabled,
+          'direction': direction.name,
+        }),
+      );
+      if (!saved) throw StateError('Could not save app settings');
+    }
+    this.darkModeEnabled = darkModeEnabled;
+    this.direction = direction;
+  }
+
   Future<void> _persist() async {
     try {
       await _preferences?.setString(

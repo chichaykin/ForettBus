@@ -1,10 +1,15 @@
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../app_data_backup.dart';
+import '../app_settings.dart';
 import '../notifications.dart';
+import '../schedule.dart';
 import '../trip_cards.dart';
 import 'trip_cards_screen.dart';
 
@@ -13,11 +18,19 @@ class ProfileScreen extends StatefulWidget {
     super.key,
     required this.darkModeEnabled,
     required this.onDarkModeChanged,
+    required this.direction,
+    required this.appSettings,
+    required this.onDirectionChanged,
+    required this.onAppSettingsRestored,
     required this.tripCardsController,
   });
 
   final bool darkModeEnabled;
   final ValueChanged<bool> onDarkModeChanged;
+  final Direction direction;
+  final AppSettings appSettings;
+  final ValueChanged<Direction> onDirectionChanged;
+  final VoidCallback onAppSettingsRestored;
   final TripCardsController tripCardsController;
 
   @override
@@ -30,6 +43,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   bool _notificationsEnabled = false;
   bool _isUpdatingNotifications = false;
+  bool _isManagingBackup = false;
 
   @override
   void initState() {
@@ -65,6 +79,102 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  Future<void> _exportAppData() async {
+    if (_isManagingBackup) return;
+    setState(() => _isManagingBackup = true);
+    try {
+      await widget.tripCardsController.load();
+      if (!mounted) return;
+      final contents = AppDataBackup.encode(
+        darkModeEnabled: widget.darkModeEnabled,
+        direction: widget.direction,
+        schedule: BusSchedule.active.value,
+        tripCards: widget.tripCardsController.cards,
+      );
+      final savedPath = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save Forett Shuttle backup',
+        fileName: 'forett-shuttle-backup.json',
+        bytes: Uint8List.fromList(utf8.encode(contents)),
+      );
+      if (!mounted) return;
+      if (savedPath != null) _showMessage('Backup saved');
+    } on Object {
+      if (mounted) _showMessage('Could not export app data');
+    } finally {
+      if (mounted) setState(() => _isManagingBackup = false);
+    }
+  }
+
+  Future<void> _restoreAppData() async {
+    if (_isManagingBackup) return;
+    setState(() => _isManagingBackup = true);
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['json'],
+        withData: true,
+      );
+      if (!mounted || result == null || result.files.isEmpty) return;
+      final bytes = result.files.single.bytes;
+      if (bytes == null) {
+        throw const FormatException('Backup file is unreadable');
+      }
+      final backup = AppDataBackup.decode(utf8.decode(bytes));
+      await widget.tripCardsController.load();
+      if (!mounted) return;
+      final approved = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Restore app data?'),
+          content: Text(
+            'Replace ${widget.tripCardsController.cards.length} saved route cards '
+            'with ${backup.tripCards.length} from this backup, along with the '
+            'timetable, theme and main direction? Notification permission and '
+            'push subscription stay on this installation.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Restore'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted || approved != true) return;
+
+      await widget.tripCardsController.replaceAll(backup.tripCards);
+      if (!mounted) return;
+      await widget.appSettings.restoreFromBackup(
+        darkModeEnabled: backup.darkModeEnabled,
+        direction: backup.direction,
+      );
+      if (!mounted) return;
+      await BusSchedule.save(backup.schedule);
+      if (!mounted) return;
+      widget.onAppSettingsRestored();
+      widget.onDirectionChanged(backup.direction);
+      widget.onDarkModeChanged(backup.darkModeEnabled);
+      try {
+        await NotificationService().pendingBusReminder();
+      } on Object {
+        if (mounted) {
+          _showMessage('App data restored; reconnect to verify its reminder');
+        }
+        return;
+      }
+      if (!mounted) return;
+      _showMessage('App data restored');
+    } on Object {
+      if (mounted) _showMessage('Could not restore app data');
+    } finally {
+      if (mounted) setState(() => _isManagingBackup = false);
+    }
+  }
+
   Future<void> _setNotificationsEnabled(bool enabled) async {
     if (_isUpdatingNotifications) return;
     setState(() => _isUpdatingNotifications = true);
@@ -74,7 +184,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         final granted = await NotificationService().requestPermission();
         if (!mounted) return;
         if (!granted) {
-          _showMessage('Notification and alarm permissions are required');
+          _showMessage(NotificationService().failureMessage());
           return;
         }
       } else {
@@ -86,9 +196,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _showMessage(
         enabled ? 'Notifications enabled' : 'Notifications disabled',
       );
-    } catch (_) {
+    } catch (error) {
       if (mounted) {
-        _showMessage('Could not update notification preferences');
+        _showMessage(
+          error is NotificationBackendException
+              ? NotificationService().failureMessage(error)
+              : 'Could not update notification preferences',
+        );
       }
     } finally {
       if (mounted) setState(() => _isUpdatingNotifications = false);
@@ -250,7 +364,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             value: widget.darkModeEnabled,
             onChanged: widget.onDarkModeChanged,
           ),
-          const SizedBox(height: 24),
           const _SectionHeading(title: 'Support'),
           const SizedBox(height: 8),
           ListTile(
@@ -293,6 +406,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
           const SizedBox(height: 24),
+          const _SectionHeading(title: 'Data'),
+          const SizedBox(height: 8),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.download_outlined),
+            title: const Text('Back up app data'),
+            subtitle: const Text(
+              'Save routes, timetable and preferences to a file',
+            ),
+            enabled: !_isManagingBackup,
+            onTap: _exportAppData,
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.upload_outlined),
+            title: const Text('Restore app data'),
+            subtitle: const Text(
+              'Replace this installation from a backup file',
+            ),
+            enabled: !_isManagingBackup,
+            onTap: _restoreAppData,
+          ),
+          const SizedBox(height: 24),
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.info_outline),
@@ -309,6 +445,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final service = NotificationService();
     final state = service.state.value;
     final reminder = service.activeReminder.value;
+    if (state.diagnosticCode != null && !state.subscribed) {
+      return 'Notification setup failed (${state.diagnosticCode})';
+    }
     switch (state.readiness) {
       case NotificationReadiness.unsupported:
         return 'Notifications are not supported in this browser';

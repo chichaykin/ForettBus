@@ -305,6 +305,19 @@ class TripCardsController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> replaceAll(List<TripCard> cards) async {
+    _preferences ??= await SharedPreferences.getInstance();
+    final saved = await _preferences!.setString(
+      _storageKey,
+      jsonEncode(cards.map((card) => card.toJson()).toList()),
+    );
+    if (!saved) throw StateError('Could not save route cards');
+    _cards
+      ..clear()
+      ..addAll(cards);
+    notifyListeners();
+  }
+
   Future<void> selectDirection(String id, TripDirection direction) async {
     final card = _cards.where((item) => item.id == id).firstOrNull;
     if (card == null || card.selectedDirection == direction) return;

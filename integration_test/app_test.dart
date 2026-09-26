@@ -29,6 +29,14 @@ class _TripPredictions extends HttpBusStopArrivalsRepository {
       tripSnapshots(now)[code]!;
 }
 
+Future<void> _pumpUi(WidgetTester tester) async {
+  // Home owns a one-second countdown timer, so pump a bounded duration instead
+  // of waiting for the whole app to become idle.
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 400));
+  await tester.pump();
+}
+
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -37,29 +45,35 @@ void main() {
     'home, schedule, directions and profile work; theme restores after restart',
     (tester) async {
       await app.main();
-      await tester.pumpAndSettle();
+      await _pumpUi(tester);
       expect(find.text('Forett Shuttle'), findsOneWidget);
       expect(find.text('Public buses'), findsOneWidget);
       await tester.tap(find.text('Schedule').last);
-      await tester.pumpAndSettle();
+      await _pumpUi(tester);
       expect(find.text('Full Schedule'), findsOneWidget);
       await tester.tap(find.text('To Forett'));
-      await tester.pumpAndSettle();
+      await _pumpUi(tester);
       await tester.tap(find.text('Profile').last);
-      await tester.pumpAndSettle();
+      await _pumpUi(tester);
       expect(find.text('Management Office'), findsOneWidget);
+      expect(find.text('Back up app data'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Restore app data'), 200);
+      await _pumpUi(tester);
+      expect(find.text('Restore app data'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Dark Mode'), -200);
+      await _pumpUi(tester);
       await tester.tap(find.byType(Switch).last);
-      await tester.pumpAndSettle();
+      await _pumpUi(tester);
       expect(find.text('Dark theme enabled'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
       await app.main();
-      await tester.pumpAndSettle();
+      await _pumpUi(tester);
       expect(
         tester.widget<MaterialApp>(find.byType(MaterialApp)).themeMode,
         ThemeMode.dark,
       );
       await tester.tap(find.text('Schedule').last);
-      await tester.pumpAndSettle();
+      await _pumpUi(tester);
       expect(
         tester.widget<DirectionToggle>(find.byType(DirectionToggle)).direction,
         Direction.beautyWorldToForett,
@@ -95,9 +109,9 @@ void main() {
           ),
         ),
       );
-      await tester.pumpAndSettle();
+      await _pumpUi(tester);
       await tester.ensureVisible(find.text('Route details'));
-      await tester.pumpAndSettle();
+      await _pumpUi(tester);
       expect(find.text('To Grab HQ'), findsOneWidget);
       expect(find.text('Bus 963'), findsOneWidget);
       expect(find.textContaining('TTS BUS'), findsNothing);
@@ -105,9 +119,9 @@ void main() {
       await tester.pump();
       await binding.takeScreenshot('trip-${brightness.name}');
       await tester.tap(find.text('Route details'));
-      await tester.pumpAndSettle();
+      await _pumpUi(tester);
       await tester.ensureVisible(find.text('Change to bus 41'));
-      await tester.pumpAndSettle();
+      await _pumpUi(tester);
       expect(find.text('Change to bus 41'), findsOneWidget);
       expect(find.text('Change to bus 963'), findsNothing);
       await binding.takeScreenshot('trip-${brightness.name}-details');
