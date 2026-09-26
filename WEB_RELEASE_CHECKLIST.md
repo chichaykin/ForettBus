@@ -51,9 +51,10 @@ Last updated: 2026-09-26 (Asia/Singapore)
 - [x] The user confirmed the notification appeared on the locked iPhone while
   the Home Screen PWA was closed. Opening it exposed a white startup screen;
   a branded `Loading…` shell and Forett launcher icons were deployed to the
-  test origin. A visual check after the service worker update is pending.
+  test origin. The production-origin PWA subsequently opened Home directly
+  from a notification without a white screen.
 - [ ] Permission denial/revocation and restart on iPhone.
-- [ ] Offline launch and controlled update on iPhone/iPad.
+- [ ] Offline launch on iPhone/iPad.
 
 ## UI and regression
 
@@ -89,6 +90,10 @@ Last updated: 2026-09-26 (Asia/Singapore)
 - [x] Tapping the production notification opened Home immediately without a
   white screen or Safari toolbar; a real iPhone screenshot confirms the Home
   layout and live public-bus arrivals.
+- [x] Updated the reminder button to `Remind me (~5 min before)` because Web
+  Push delivery depends on the network and iOS scheduling. The installed iPhone
+  PWA picked up the update without reinstalling, and the user confirmed its
+  reminder was preserved.
 - [x] Recorded the exact production URL above. Do not distribute it by QR until
   the pilot is complete.
 - [ ] Capture real iPhone screenshots without personal/test data.
@@ -102,13 +107,14 @@ Last updated: 2026-09-26 (Asia/Singapore)
 
 - Locked-screen delivery succeeded on both test and production origins. The
   production PWA has the Forett launcher icon; tapping the reminder opened Home
-  directly. A controlled PWA update check is still pending before the resident
-  pilot.
+  directly. A controlled PWA update preserved the reminder and displayed the
+  new button label on the installed iPhone app.
 - The Play-signed Pixel 8 Pro app was previously preserved because the local
   debug signature differs. Pixel 9a emulator integration tests passed with mock
   preferences, and the ordinary live API debug APK was rebuilt and reinstalled
   with `adb install -r` afterward.
-- No production URL has been verified; do not print a QR code yet.
+- The production URL has been verified; do not print a QR code until the
+  resident pilot and remaining release checks are complete.
 
 ## Known limitations to publish
 

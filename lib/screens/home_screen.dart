@@ -632,7 +632,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       ? 'Updating...'
                       : isReminderSet
                       ? 'Reminder Set'
-                      : 'Remind me (5m before)',
+                      : 'Remind me (~5 min before)',
                 ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: isReminderSet

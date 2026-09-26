@@ -113,7 +113,7 @@ void main() {
     );
     expect(find.textContaining('Scheduled'), findsWidgets);
     expect(find.text('Scheduled timetable'), findsOneWidget);
-    expect(find.textContaining('in '), findsNothing);
+    expect(find.textContaining(RegExp(r'^in \d+ min')), findsNothing);
 
     await tester.pumpWidget(const SizedBox());
   });
@@ -180,7 +180,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('Stale'), findsOneWidget);
-    expect(find.textContaining('in '), findsNothing);
+    expect(find.textContaining(RegExp(r'^in \d+ min')), findsNothing);
     expect(find.text(DateFormat('HH:mm').format(arrival)), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox());
