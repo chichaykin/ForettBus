@@ -387,6 +387,7 @@ class HttpBusStopArrivalsRepository {
         'Invalid stop configuration',
       );
     }
+    await _config.ensureWebSession(_client);
     final uri = _config.uri('/v1/arrivals', {'stopCode': stopCode});
     final response = await _client
         .get(uri, headers: _config.headers())
@@ -482,6 +483,7 @@ class HttpBusArrivalsRepository implements BusArrivalsRepository {
 
     http.Response response;
     try {
+      await _config.ensureWebSession(_client);
       response = await _client
           .get(uri, headers: _config.headers())
           .timeout(const Duration(seconds: 10));

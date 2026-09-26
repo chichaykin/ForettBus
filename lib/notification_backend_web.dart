@@ -20,8 +20,11 @@ external bool _isInstallRequired();
 @JS('forettPush.permission')
 external String _notificationPermission();
 
-@JS('forettPush.requestPermission')
-external JSPromise<JSString> _requestNotificationPermission();
+@JS('forettPush.isWorkerReady')
+external bool _isWorkerReady();
+
+@JS('forettPush.existingSubscription')
+external JSPromise<JSString> _existingSubscription();
 
 @JS('forettPush.subscribe')
 external JSPromise<JSString> _subscribe(String applicationServerKey);
@@ -46,23 +49,40 @@ class WebNotificationBackend implements NotificationBackend {
     if (!_isPushSupported()) {
       return const NotificationBackendState(
         readiness: NotificationReadiness.unsupported,
+        diagnosticCode: 'PUSH_UNSUPPORTED',
       );
     }
     if (_isInstallRequired()) {
       return const NotificationBackendState(
         readiness: NotificationReadiness.installRequired,
+        diagnosticCode: 'PUSH_INSTALL_REQUIRED',
       );
     }
     await _loadConfiguration();
+    // Prepare the service worker before a tap. On iOS the new push subscription
+    // must be requested synchronously from the user's gesture.
+    late final String existing;
+    try {
+      existing = (await _existingSubscription().toDart.timeout(
+        const Duration(seconds: 65),
+      )).toDart;
+    } on Object {
+      return const NotificationBackendState(
+        diagnosticCode: 'PUSH_WORKER_INIT_FAILED',
+      );
+    }
     final permission = _notificationPermission();
     if (permission == 'denied') {
       return const NotificationBackendState(
         readiness: NotificationReadiness.permissionDenied,
+        diagnosticCode: 'PUSH_PERMISSION_DENIED',
       );
     }
     if (permission == 'granted') {
-      await _ensureSession();
-      await _syncSubscription();
+      if (existing.isNotEmpty) {
+        await _ensureSession();
+        await _saveSubscription(existing);
+      }
       return NotificationBackendState(
         readiness: NotificationReadiness.ready,
         subscribed: _subscribed,
@@ -76,26 +96,52 @@ class WebNotificationBackend implements NotificationBackend {
     if (!_isPushSupported()) {
       return const NotificationBackendState(
         readiness: NotificationReadiness.unsupported,
+        diagnosticCode: 'PUSH_UNSUPPORTED',
       );
     }
     if (_isInstallRequired()) {
       return const NotificationBackendState(
         readiness: NotificationReadiness.installRequired,
+        diagnosticCode: 'PUSH_INSTALL_REQUIRED',
       );
     }
 
-    // Start the browser prompt synchronously from the UI gesture. Safari can
-    // reject prompts that follow an awaited network operation.
-    final permissionRequest = _requestNotificationPermission().toDart;
-    final permission = (await permissionRequest).toDart;
-    if (permission != 'granted') {
+    if (_notificationPermission() == 'denied') {
       return const NotificationBackendState(
         readiness: NotificationReadiness.permissionDenied,
+        diagnosticCode: 'PUSH_PERMISSION_DENIED',
       );
     }
-    await _loadConfiguration();
+
+    final key = _vapidPublicKey;
+    if (key == null) {
+      throw const NotificationBackendException('PUSH_CONFIG_NOT_READY');
+    }
+    if (!_isWorkerReady()) {
+      throw const NotificationBackendException('PUSH_WORKER_NOT_READY');
+    }
+    // WebKit requires pushManager.subscribe() itself to start in the tap's
+    // user gesture. Do not await configuration, registration, or HTTP here.
+    late final String serialized;
+    try {
+      final subscriptionRequest = _subscribe(key).toDart;
+      serialized = (await subscriptionRequest.timeout(
+        const Duration(seconds: 30),
+      )).toDart;
+    } on Object {
+      throw const NotificationBackendException('PUSH_SUBSCRIBE_FAILED');
+    }
+    final permission = _notificationPermission();
+    if (permission != 'granted') {
+      return NotificationBackendState(
+        readiness: NotificationReadiness.permissionDenied,
+        diagnosticCode: permission == 'default'
+            ? 'PUSH_PERMISSION_DEFAULT'
+            : 'PUSH_PERMISSION_UNKNOWN',
+      );
+    }
     await _ensureSession();
-    await _syncSubscription();
+    await _saveSubscription(serialized);
     return NotificationBackendState(
       readiness: NotificationReadiness.ready,
       subscribed: _subscribed,
@@ -104,35 +150,52 @@ class WebNotificationBackend implements NotificationBackend {
 
   Future<void> _loadConfiguration() async {
     if (_vapidPublicKey != null) return;
-    final response = await _client.get(_uri('/api/push/config'));
-    final body = _decodeObject(response);
-    final key = body['vapidPublicKey'];
-    if (response.statusCode != 200 || key is! String || key.isEmpty) {
-      throw StateError('Web Push is unavailable');
+    try {
+      final response = await _client
+          .get(_uri('/api/push/config'))
+          .timeout(const Duration(seconds: 12));
+      final body = _decodeObject(response);
+      final key = body['vapidPublicKey'];
+      if (response.statusCode != 200 || key is! String || key.isEmpty) {
+        throw StateError('Web Push is unavailable');
+      }
+      _vapidPublicKey = key;
+    } on Object {
+      throw const NotificationBackendException('PUSH_CONFIG_FAILED');
     }
-    _vapidPublicKey = key;
   }
 
   Future<void> _ensureSession() async {
-    final response = await _client.post(_uri('/api/session'));
-    if (response.statusCode != 200 && response.statusCode != 201) {
-      throw StateError('Could not create the notification session');
+    try {
+      final response = await _client
+          .post(_uri('/api/session'))
+          .timeout(const Duration(seconds: 12));
+      if (response.statusCode != 200 && response.statusCode != 201) {
+        throw StateError('Could not create the notification session');
+      }
+    } on Object {
+      throw const NotificationBackendException('PUSH_SESSION_FAILED');
     }
   }
 
-  Future<void> _syncSubscription() async {
-    final serialized = (await _subscribe(_vapidPublicKey!).toDart).toDart;
-    final decoded = jsonDecode(serialized);
-    if (decoded is! Map<String, dynamic>) {
-      throw const FormatException('Invalid browser push subscription');
-    }
-    final response = await _client.put(
-      _uri('/api/push/subscription'),
-      headers: const {'content-type': 'application/json'},
-      body: jsonEncode(decoded),
-    );
-    if (response.statusCode != 200) {
-      throw StateError('Could not save the push subscription');
+  Future<void> _saveSubscription(String serialized) async {
+    try {
+      final decoded = jsonDecode(serialized);
+      if (decoded is! Map<String, dynamic>) {
+        throw const FormatException('Invalid browser push subscription');
+      }
+      final response = await _client
+          .put(
+            _uri('/api/push/subscription'),
+            headers: const {'content-type': 'application/json'},
+            body: jsonEncode(decoded),
+          )
+          .timeout(const Duration(seconds: 12));
+      if (response.statusCode != 200) {
+        throw StateError('Could not save the push subscription');
+      }
+    } on Object {
+      throw const NotificationBackendException('PUSH_SAVE_FAILED');
     }
     _subscribed = true;
   }
@@ -140,11 +203,19 @@ class WebNotificationBackend implements NotificationBackend {
   @override
   Future<BusReminder> schedule(BusReminder reminder) async {
     if (_notificationPermission() != 'granted') {
-      throw StateError('Notification permission is required');
+      throw const NotificationBackendException('PUSH_PERMISSION_NOT_GRANTED');
     }
     await _loadConfiguration();
     await _ensureSession();
-    if (!_subscribed) await _syncSubscription();
+    if (!_subscribed) {
+      final existing = (await _existingSubscription().toDart.timeout(
+        const Duration(seconds: 30),
+      )).toDart;
+      if (existing.isEmpty) {
+        throw const NotificationBackendException('PUSH_SUBSCRIPTION_MISSING');
+      }
+      await _saveSubscription(existing);
+    }
     final id = reminder.id ?? _randomId();
     late final http.Response response;
     try {
@@ -166,7 +237,7 @@ class WebNotificationBackend implements NotificationBackend {
       rethrow;
     }
     if (response.statusCode != 200 && response.statusCode != 201) {
-      throw StateError('Could not save the reminder');
+      throw const NotificationBackendException('REMINDER_SAVE_FAILED');
     }
     return BusReminder(
       id: id,
@@ -177,7 +248,9 @@ class WebNotificationBackend implements NotificationBackend {
 
   @override
   Future<BusReminder?> pendingReminder() async {
-    final response = await _client.get(_uri('/api/reminder'));
+    final response = await _client
+        .get(_uri('/api/reminder'))
+        .timeout(const Duration(seconds: 12));
     if (response.statusCode == 401 || response.statusCode == 404) return null;
     final body = _decodeObject(response);
     if (response.statusCode != 200 || body['reminder'] == null) return null;
@@ -224,11 +297,13 @@ class WebNotificationBackend implements NotificationBackend {
 
   @override
   Future<void> disable() async {
-    final response = await _client.delete(_uri('/api/push/subscription'));
+    final response = await _client
+        .delete(_uri('/api/push/subscription'))
+        .timeout(const Duration(seconds: 12));
     if (response.statusCode != 200 && response.statusCode != 204) {
       throw StateError('Could not disable notifications');
     }
-    await _unsubscribe().toDart;
+    await _unsubscribe().toDart.timeout(const Duration(seconds: 40));
     _subscribed = false;
   }
 

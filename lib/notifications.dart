@@ -9,7 +9,11 @@ import 'notification_backend_factory.dart';
 import 'schedule.dart';
 
 export 'notification_backend.dart'
-    show BusReminder, NotificationBackendState, NotificationReadiness;
+    show
+        BusReminder,
+        NotificationBackendException,
+        NotificationBackendState,
+        NotificationReadiness;
 
 class NotificationService {
   static const _pendingCancelKey = 'pending_notification_cancel.v1';
@@ -34,6 +38,15 @@ class NotificationService {
   );
   final ValueNotifier<bool> operationInProgress = ValueNotifier(false);
 
+  String failureMessage([Object? error]) {
+    final code = error is NotificationBackendException
+        ? error.code
+        : state.value.diagnosticCode;
+    return code == null
+        ? 'Notification and alarm permissions are required'
+        : 'Notification setup failed ($code)';
+  }
+
   Future<void> init() => _initFuture ??= _initializeWithReset();
 
   Future<void> _initializeWithReset() async {
@@ -51,8 +64,8 @@ class NotificationService {
     final revision = ++_operationRevision;
     operationInProgress.value = true;
     try {
-      // The Web backend invokes the browser prompt before awaiting network I/O
-      // so Safari keeps the originating user gesture.
+      // The Web backend starts the push subscription before awaiting network
+      // I/O so Safari keeps the originating user gesture.
       final next = await _backend.requestPermission();
       if (revision == _operationRevision) state.value = next;
       return next.readiness == NotificationReadiness.ready;
@@ -62,6 +75,9 @@ class NotificationService {
           readiness: state.value.readiness,
           subscribed: state.value.subscribed,
           syncError: error.toString(),
+          diagnosticCode: error is NotificationBackendException
+              ? error.code
+              : 'PUSH_UNEXPECTED_ERROR',
         );
       }
       rethrow;
@@ -102,10 +118,27 @@ class NotificationService {
   Future<BusReminder?> pendingBusReminder() async {
     await init();
     final reminder = await _backend.pendingReminder();
-    if (reminder == null ||
-        !reminder.busTime.isAfter(BusSchedule.now()) ||
-        !BusSchedule.isConfirmedOperatingDay(reminder.busTime) ||
-        !BusSchedule.containsDeparture(reminder.busTime, reminder.direction)) {
+    if (reminder == null) {
+      activeReminder.value = null;
+      await _clearActiveReminder();
+      return null;
+    }
+    final valid =
+        reminder.busTime.isAfter(BusSchedule.now()) &&
+        BusSchedule.isConfirmedOperatingDay(reminder.busTime) &&
+        BusSchedule.containsDeparture(reminder.busTime, reminder.direction);
+    if (!valid) {
+      activeReminder.value = reminder;
+      try {
+        await _backend.cancelReminder(reminderId: reminder.id);
+        await _clearPendingCancellation();
+      } on Object {
+        if (reminder.id != null) {
+          final preferences = await SharedPreferences.getInstance();
+          await preferences.setString(_pendingCancelKey, reminder.id!);
+        }
+        rethrow;
+      }
       activeReminder.value = null;
       await _clearActiveReminder();
       return null;

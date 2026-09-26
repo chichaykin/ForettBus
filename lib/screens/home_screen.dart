@@ -403,7 +403,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final granted = await NotificationService().requestPermission();
       if (!mounted) return;
       if (!granted) {
-        _showMessage('Notification and alarm permissions are required');
+        _showMessage(NotificationService().failureMessage());
         return;
       }
 
@@ -422,9 +422,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _reminderDirection = direction;
       });
       _showMessage('Reminder set for 5 mins before departure');
-    } catch (_) {
+    } catch (error) {
       if (mounted) {
-        _showMessage('Could not update the reminder. Please try again.');
+        _showMessage(
+          error is NotificationBackendException
+              ? NotificationService().failureMessage(error)
+              : 'Could not update the reminder. Please try again.',
+        );
       }
     } finally {
       if (mounted) setState(() => _isUpdatingReminder = false);

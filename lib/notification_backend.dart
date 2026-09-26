@@ -21,11 +21,22 @@ class NotificationBackendState {
     this.readiness = NotificationReadiness.unknown,
     this.subscribed = false,
     this.syncError,
+    this.diagnosticCode,
   });
 
   final NotificationReadiness readiness;
   final bool subscribed;
   final String? syncError;
+  final String? diagnosticCode;
+}
+
+class NotificationBackendException implements Exception {
+  const NotificationBackendException(this.code);
+
+  final String code;
+
+  @override
+  String toString() => 'NotificationBackendException($code)';
 }
 
 abstract class NotificationBackend {

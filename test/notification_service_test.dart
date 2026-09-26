@@ -86,6 +86,24 @@ void main() {
     expect(backend.reminder, isNull);
   });
 
+  test('a restored timetable cancels a now-invalid server reminder', () async {
+    final backend = _FakeBackend();
+    final service = NotificationService.withBackend(backend);
+    final departure = BusSchedule.getNextOperatingDayBus(
+      BusSchedule.now(),
+      Direction.forettToBeautyWorld,
+    )!;
+    backend.reminder = BusReminder(
+      id: 'server-reminder-id',
+      busTime: departure.add(const Duration(minutes: 1)),
+      direction: Direction.forettToBeautyWorld,
+    );
+
+    expect(await service.pendingBusReminder(), isNull);
+    expect(backend.reminder, isNull);
+    expect(service.activeReminder.value, isNull);
+  });
+
   test(
     'failed Web cancellation is retried for the specific reminder',
     () async {

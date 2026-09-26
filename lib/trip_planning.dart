@@ -192,6 +192,7 @@ class TripPlannerClient {
   Future<http.Response> _get(String path, Map<String, String> query) async {
     final uri = _config.uri(path, query);
     try {
+      await _config.ensureWebSession(_client);
       final response = await _client
           .get(uri, headers: _headers())
           .timeout(const Duration(seconds: 12));
@@ -209,6 +210,7 @@ class TripPlannerClient {
   Future<http.Response> _post(String path, Map<String, dynamic> body) async {
     final uri = _config.uri(path);
     try {
+      await _config.ensureWebSession(_client);
       final response = await _client
           .post(
             uri,

@@ -11,7 +11,11 @@ self.addEventListener("install", (event) => {
     const cache = await caches.open(CACHE_NAME);
     const urls = PRECACHE.map((entry) =>
       typeof entry === "string" ? entry : entry.url);
-    await cache.addAll(Array.from(new Set([...urls, ...REQUIRED])));
+    // Workbox emits relative paths while REQUIRED uses root-relative paths.
+    // Cache.addAll rejects the whole install if both forms resolve to one URL.
+    const uniqueUrls = Array.from(new Set([...urls, ...REQUIRED]
+      .map((url) => new URL(url, self.location.origin).href)));
+    await cache.addAll(uniqueUrls);
   })());
 });
 

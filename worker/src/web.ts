@@ -141,7 +141,11 @@ async function bodyObject(request: Request): Promise<Record<string, unknown>> {
   }
 }
 
-async function installationFor(request: Request, env: Env): Promise<Installation | null> {
+async function installationFor(
+  request: Request,
+  env: Env,
+  touch = true,
+): Promise<Installation | null> {
   const token = cookieValue(request, SESSION_COOKIE);
   if (!token || token.length < 40 || token.length > 64) return null;
   const hash = await sha256(token);
@@ -149,10 +153,12 @@ async function installationFor(request: Request, env: Env): Promise<Installation
     "SELECT id, session_hash, expires_at FROM installations WHERE session_hash = ? AND expires_at > ?",
   ).bind(hash, nowIso()).first<Installation>();
   if (!installation) return null;
-  const now = new Date();
-  await env.DB.prepare(
-    "UPDATE installations SET last_seen_at = ?, expires_at = ? WHERE id = ?",
-  ).bind(now.toISOString(), addDays(now, SESSION_DAYS), installation.id).run();
+  if (touch) {
+    const now = new Date();
+    await env.DB.prepare(
+      "UPDATE installations SET last_seen_at = ?, expires_at = ? WHERE id = ?",
+    ).bind(now.toISOString(), addDays(now, SESSION_DAYS), installation.id).run();
+  }
   return installation;
 }
 
@@ -391,9 +397,6 @@ async function transportProxy(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const invalid = validateTransport(url, request);
   if (invalid) return invalid;
-  if (url.pathname === "/api/v1/trips/plan" && await limited(env.PLAN_RATE_LIMITER, clientIp(request))) {
-    return json({ error: "Too many requests" }, 429, { "retry-after": "60" });
-  }
   if (request.method === "POST" && !originAllowed(request)) return json({ error: "Invalid origin" }, 403);
   let body: string | undefined;
   if (request.method === "POST") {
@@ -433,16 +436,37 @@ async function holidays(request: Request): Promise<Response> {
 export async function handleWebRequest(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
-  if (await limited(env.IP_RATE_LIMITER, clientIp(request))) {
-    return json({ error: "Too many requests" }, 429, { "retry-after": "60" });
-  }
-  const write = request.method !== "GET";
-  const sessionToken = cookieValue(request, SESSION_COOKIE);
-  const sessionKey = sessionToken ? await sha256(sessionToken) : clientIp(request);
-  if (await limited(write ? env.WRITE_RATE_LIMITER : env.READ_RATE_LIMITER, sessionKey)) {
-    return json({ error: "Too many requests" }, 429, { "retry-after": "60" });
-  }
   try {
+    if (await limited(env.IP_RATE_LIMITER, clientIp(request))) {
+      return json({ error: "Too many requests" }, 429, { "retry-after": "60" });
+    }
+
+    const isSessionRoute = url.pathname === "/api/session";
+    const isPublicRead =
+      request.method === "GET" &&
+      (url.pathname === "/api/push/config" || url.pathname === "/api/holidays");
+    const isProtectedRoute =
+      url.pathname === "/api/reminder" ||
+      url.pathname.startsWith("/api/push/") ||
+      url.pathname.startsWith("/api/v1/");
+
+    if (!isSessionRoute && !isPublicRead && isProtectedRoute) {
+      const installation = await installationFor(request, env, false);
+      if (!installation) return json({ error: "Session required" }, 401);
+      if (await limited(
+        request.method === "GET" ? env.READ_RATE_LIMITER : env.WRITE_RATE_LIMITER,
+        installation.session_hash,
+      )) {
+        return json({ error: "Too many requests" }, 429, { "retry-after": "60" });
+      }
+      if (
+        url.pathname === "/api/v1/trips/plan" &&
+        await limited(env.PLAN_RATE_LIMITER, installation.session_hash)
+      ) {
+        return json({ error: "Too many requests" }, 429, { "retry-after": "60" });
+      }
+    }
+
     if (url.pathname === "/api/session") return await session(request, env);
     if (url.pathname.startsWith("/api/push/")) return await pushApi(request, env, url.pathname);
     if (url.pathname === "/api/reminder") return await reminderApi(request, env);
@@ -523,7 +547,9 @@ async function deliver(message: Message<ReminderMessage>, env: Env): Promise<voi
   });
   const current = await env.DB.prepare("SELECT status FROM reminders WHERE id = ?").bind(row.id).first<{ status: string }>();
   if (current?.status !== "sending") return;
-  const response = await fetch(subscription.endpoint, { ...payload, redirect: "error" });
+  // Workers fetch does not support redirect: "error". Manual redirects keep
+  // the encrypted payload from being forwarded to another origin.
+  const response = await fetch(subscription.endpoint, { ...payload, redirect: "manual" });
   if (response.ok) {
     await env.DB.prepare("UPDATE reminders SET status = 'sent', locked_until = NULL, updated_at = ? WHERE id = ? AND status = 'sending'").bind(nowIso(), row.id).run();
     return;
