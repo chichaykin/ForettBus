@@ -15,9 +15,11 @@ resident-facing QR code. Treat it as permanent because browser storage and Web
 Push subscriptions belong to the origin.
 
 The exact production origin was deployed on 2026-09-26 with its own D1 database,
-Queue and VAPID key pair. `PUSH_ENABLED=false` remains in effect while the
-production-origin Home Screen installation is checked. The test origin remains
-available for engineering checks.
+Queue and VAPID key pair. After installation on an iPhone, production push was
+enabled. The first reminder was accepted by the push provider at 18:36:01
+Singapore time for an 18:40 departure, and the user confirmed it appeared on
+the locked iPhone while the PWA was closed.
+The test origin remains available for engineering checks.
 
 ## One-time test environment
 

@@ -80,8 +80,15 @@ Last updated: 2026-09-26 (Asia/Singapore)
   `https://forett-shuttle-web.forett-shuttle-api.workers.dev`. HTTPS pages,
   anonymous session creation, protected arrivals, holidays and disabled push
   configuration passed smoke checks.
-- [ ] Install the production-origin PWA on iPhone, enable production push, and
-  confirm a locked-screen notification from that origin.
+- [x] Installed the production-origin PWA on iPhone with the Forett launcher
+  icon and enabled production push. The first subscription and 18:40 departure
+  reminder were recorded in production D1.
+- [x] The production Worker sent the reminder at 18:36:01 Singapore time on its
+  first attempt; D1 records `sent` without error. The user confirmed the
+  notification appeared on the locked iPhone while the PWA was closed.
+- [x] Tapping the production notification opened Home immediately without a
+  white screen or Safari toolbar; a real iPhone screenshot confirms the Home
+  layout and live public-bus arrivals.
 - [x] Recorded the exact production URL above. Do not distribute it by QR until
   the pilot is complete.
 - [ ] Capture real iPhone screenshots without personal/test data.
@@ -93,11 +100,10 @@ Last updated: 2026-09-26 (Asia/Singapore)
 
 ## Current release blockers (2026-09-26)
 
-- Wrangler has been reauthenticated, the iPhone PWA subscribed, and the test
-  Worker has the outbound `fetch` fix. Locked-screen delivery succeeded on the
-  test origin. Startup loading and icon changes need a fresh iPhone visual check
-  before production setup. Existing iOS Home Screen icons may keep their
-  installation-time artwork until the PWA is removed and added again.
+- Locked-screen delivery succeeded on both test and production origins. The
+  production PWA has the Forett launcher icon; tapping the reminder opened Home
+  directly. A controlled PWA update check is still pending before the resident
+  pilot.
 - The Play-signed Pixel 8 Pro app was previously preserved because the local
   debug signature differs. Pixel 9a emulator integration tests passed with mock
   preferences, and the ordinary live API debug APK was rebuilt and reinstalled
