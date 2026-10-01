@@ -87,6 +87,28 @@ per-session limit. The IP limit remains as a separate abuse guard.
   data should open; live arrivals and new push delivery require a connection.
 - Exercise a shared-IP scenario with 100 simulated installations and verify
   transport and place-planning limits are applied per session.
+
+## Optional GA4 usage analytics
+
+Create a free GA4 Standard property with timezone `Asia/Singapore` and a Web
+stream for the exact production origin. Keep Google Signals and advertising
+personalization off, and disable Enhanced measurement in the Web stream so
+GA4 does not collect extra interactions or URLs outside the app's allowlist.
+Put the public `G-...` stream ID in the ignored production
+Wrangler config as `GA4_MEASUREMENT_ID`. Add its Measurement Protocol API secret
+as the production `GA4_API_SECRET` Worker secret. Neither value is needed by the
+test Worker; only the API secret must stay outside Git. The Web Worker returns
+analytics configuration only on the exact production hostname and only when
+both values are configured. Do not enable a paid Analytics tier or link Ads.
+
+After deploying, check the Profile Usage analytics switch, a single safe
+`page_view`, the Home/Schedule/Profile `screen_view` events, and basic action
+events in GA4 Realtime/DebugView. Check that turning the switch off prevents
+requests to Google Analytics and clears pending offline events. Validate an
+offline event through Google's Measurement Protocol debug endpoint before
+relying on historical DAU. Offline events older than 72 hours are discarded.
+The GA4 dashboard's one-day Active users includes only measurable web users;
+browser blocking and opt-outs reduce the count.
 - Run 100 due reminders through a test-only delivery stub; never target resident
   push endpoints for this load test.
 

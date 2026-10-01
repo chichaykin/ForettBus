@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../analytics.dart';
 import 'package:intl/intl.dart';
 import 'package:timezone/timezone.dart' as tz;
 
@@ -400,6 +401,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _reminderDirection = null;
         });
         _showMessage('Reminder cancelled');
+        AnalyticsService.track('reminder_cancelled');
         return;
       }
 
@@ -425,6 +427,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _reminderDirection = direction;
       });
       _showMessage('Reminder set for 5 mins before departure');
+      AnalyticsService.track('reminder_set');
     } catch (error) {
       if (mounted) {
         _showMessage(

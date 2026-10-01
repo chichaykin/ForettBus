@@ -3,10 +3,12 @@ import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../app_data_backup.dart';
+import '../analytics.dart';
 import '../app_settings.dart';
 import '../notifications.dart';
 import '../schedule.dart';
@@ -44,10 +46,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _notificationsEnabled = false;
   bool _isUpdatingNotifications = false;
   bool _isManagingBackup = false;
+  late bool _usageAnalyticsEnabled;
 
   @override
   void initState() {
     super.initState();
+    _usageAnalyticsEnabled = AnalyticsService.enabled;
     NotificationService().activeReminder.addListener(_handleReminderChanged);
     NotificationService().state.addListener(_handleNotificationStateChanged);
     unawaited(_restoreNotificationState());
@@ -364,6 +368,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
             value: widget.darkModeEnabled,
             onChanged: widget.onDarkModeChanged,
           ),
+          if (kIsWeb)
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              secondary: const Icon(Icons.bar_chart_outlined),
+              title: const Text('Usage analytics'),
+              subtitle: const Text(
+                'App usage; no routes or addresses are sent',
+              ),
+              value: _usageAnalyticsEnabled,
+              onChanged: (enabled) {
+                AnalyticsService.setEnabled(enabled);
+                setState(
+                  () => _usageAnalyticsEnabled = AnalyticsService.enabled,
+                );
+              },
+            ),
           const _SectionHeading(title: 'Support'),
           const SizedBox(height: 8),
           ListTile(
