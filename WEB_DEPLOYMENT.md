@@ -87,15 +87,19 @@ per-session limit. The IP limit remains as a separate abuse guard.
   data should open; live arrivals and new push delivery require a connection.
 - Exercise a shared-IP scenario with 100 simulated installations and verify
   transport and place-planning limits are applied per session.
+- Run 100 due reminders through a test-only delivery stub; never target resident
+  push endpoints for this load test.
 
-## Optional GA4 usage analytics
+## GA4 usage analytics
 
-Create a free GA4 Standard property with timezone `Asia/Singapore` and a Web
-stream for the exact production origin. Keep Google Signals and advertising
-personalization off, and disable Enhanced measurement in the Web stream so
-GA4 does not collect extra interactions or URLs outside the app's allowlist.
-Put the public `G-...` stream ID in the ignored production
-Wrangler config as `GA4_MEASUREMENT_ID`. Add its Measurement Protocol API secret
+The free GA4 Standard property `Forett Shuttle PWA` was created on 2026-10-02
+with property ID `557077770`, Web stream ID `15952150932`, measurement ID
+`G-HSJGE8VZ8K`, and reporting timezone `Asia/Singapore`. The Web stream uses
+the exact production origin. Enhanced measurement, Google Signals, granular
+location/device collection, and ads personalisation are off.
+
+Put the public stream ID in the ignored production Wrangler config as
+`GA4_MEASUREMENT_ID`. Add its Measurement Protocol API secret
 as the production `GA4_API_SECRET` Worker secret. Neither value is needed by the
 test Worker; only the API secret must stay outside Git. The Web Worker returns
 analytics configuration only on the exact production hostname and only when
@@ -109,8 +113,12 @@ offline event through Google's Measurement Protocol debug endpoint before
 relying on historical DAU. Offline events older than 72 hours are discarded.
 The GA4 dashboard's one-day Active users includes only measurable web users;
 browser blocking and opt-outs reduce the count.
-- Run 100 due reminders through a test-only delivery stub; never target resident
-  push endpoints for this load test.
+
+Production verification on 2026-10-02: the analytics configuration endpoint
+returned the stream ID; GA4 Realtime received `app_open` and `screen_view` from
+the PWA; the Profile switch stayed off after a reload; and the Measurement
+Protocol debug endpoint returned no validation messages for the offline event
+payload. The debug request did not ingest test events.
 
 The notification error code shown on Home and Profile identifies the failed
 stage. `PUSH_WORKER_NOT_READY` or `PUSH_WORKER_INIT_FAILED` points to service
