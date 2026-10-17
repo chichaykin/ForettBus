@@ -259,12 +259,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
 
     try {
-      final snapshot = await _arrivalRepository.fetch(direction);
+      final liveSnapshot = await _arrivalRepository.fetch(direction);
       if (!mounted ||
           requestRevision != _arrivalRequestRevision ||
           widget.direction != direction) {
         return;
       }
+      final snapshot = liveSnapshot.withScheduledFallback(BusSchedule.now());
       final hasArrivals = snapshot.routes.any(
         (route) => route.arrivals.isNotEmpty,
       );
@@ -683,6 +684,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }) {
     final scheduledLabel = arrival.isScheduled ? ' · Scheduled' : '';
     final arrivalTime = _formatSingaporeTime(arrival.estimatedArrival);
+    final singaporeArrival = tz.TZDateTime.from(
+      arrival.estimatedArrival,
+      BusSchedule.singaporeLocation,
+    );
+    final singaporeNow = tz.TZDateTime.from(
+      _now,
+      BusSchedule.singaporeLocation,
+    );
+    final arrivalDate = DateUtils.isSameDay(singaporeArrival, singaporeNow)
+        ? null
+        : DateFormat('d MMM').format(singaporeArrival);
+    final accessibleTime = arrivalDate == null
+        ? arrivalTime
+        : '$arrivalDate, $arrivalTime';
     final arrivalStatus = _formatArrival(arrival, showCountdown: showCountdown);
     final statusStyle = TextStyle(
       fontSize: 14,
@@ -690,10 +705,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       color: colors.onSurface,
     );
     return Tooltip(
-      message: 'Route $serviceNumber · $arrivalTime$scheduledLabel',
+      message: 'Route $serviceNumber · $accessibleTime$scheduledLabel',
       child: Semantics(
         container: true,
-        label: 'Route $serviceNumber, $arrivalStatus, arrives at $arrivalTime',
+        label:
+            'Route $serviceNumber, $arrivalStatus, arrives at $accessibleTime',
         child: Container(
           constraints: const BoxConstraints(minWidth: 68, minHeight: 44),
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
@@ -758,6 +774,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       color: colors.onSurfaceVariant,
                     ),
                   ),
+                  if (arrivalDate != null)
+                    Text(
+                      arrivalDate,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
                 ],
               );
             },
@@ -841,25 +865,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _now.difference(snapshot.fetchedAt) > const Duration(seconds: 60);
     final visibleRoutes = <BusRouteArrivals>[];
     if (snapshot != null) {
-      for (final route in snapshot.routes) {
-        final arrivals = route.arrivals
+      for (final serviceNumber in ['41', '77']) {
+        final matchingRoutes = snapshot.routes.where(
+          (route) => route.serviceNumber == serviceNumber,
+        );
+        final arrivals = matchingRoutes
+            .expand((route) => route.arrivals)
             .where((arrival) => !arrival.estimatedArrival.isBefore(_now))
             .take(3)
             .toList();
-        if (arrivals.isNotEmpty) {
-          visibleRoutes.add(
-            BusRouteArrivals(
-              serviceNumber: route.serviceNumber,
-              arrivals: arrivals,
-            ),
-          );
-        }
+        visibleRoutes.add(
+          BusRouteArrivals(serviceNumber: serviceNumber, arrivals: arrivals),
+        );
       }
-      visibleRoutes.sort(
-        (a, b) => a.arrivals.first.estimatedArrival.compareTo(
-          b.arrivals.first.estimatedArrival,
-        ),
-      );
     }
 
     return Card(
@@ -933,14 +951,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 'Live data is more than a minute old. Tap refresh to try again.',
                 style: TextStyle(color: colors.error),
               ),
-            if (snapshot != null && visibleRoutes.isEmpty)
-              Text(
-                isFallback
-                    ? 'No upcoming scheduled buses are listed.'
-                    : 'No upcoming buses are currently predicted.',
-                style: TextStyle(color: colors.onSurfaceVariant),
-              )
-            else if (visibleRoutes.isNotEmpty) ...[
+            if (visibleRoutes.isNotEmpty) ...[
               for (final route in visibleRoutes)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
@@ -959,37 +970,51 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         ),
                       ),
                       Expanded(
-                        child: LayoutBuilder(
-                          builder: (context, constraints) {
-                            final textScale =
-                                MediaQuery.textScalerOf(context).scale(14) / 14;
-                            final columns =
-                                (constraints.maxWidth / (80 * textScale))
-                                    .floor()
-                                    .clamp(1, route.arrivals.length);
-                            const spacing = 6.0;
-                            final badgeWidth =
-                                (constraints.maxWidth -
-                                    spacing * (columns - 1)) /
-                                columns;
-                            return Wrap(
-                              spacing: spacing,
-                              runSpacing: spacing,
-                              children: [
-                                for (final arrival in route.arrivals)
-                                  SizedBox(
-                                    width: badgeWidth,
-                                    child: _buildArrivalBadge(
-                                      arrival,
-                                      colors,
-                                      serviceNumber: route.serviceNumber,
-                                      showCountdown: !isFallback && !isStale,
-                                    ),
-                                  ),
-                              ],
-                            );
-                          },
-                        ),
+                        child: route.arrivals.isEmpty
+                            ? Text(
+                                isFallback
+                                    ? 'No scheduled arrivals'
+                                    : 'No ETA available',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: colors.onSurfaceVariant,
+                                ),
+                              )
+                            : LayoutBuilder(
+                                builder: (context, constraints) {
+                                  final textScale =
+                                      MediaQuery.textScalerOf(
+                                        context,
+                                      ).scale(14) /
+                                      14;
+                                  final columns =
+                                      (constraints.maxWidth / (80 * textScale))
+                                          .floor()
+                                          .clamp(1, route.arrivals.length);
+                                  const spacing = 6.0;
+                                  final badgeWidth =
+                                      (constraints.maxWidth -
+                                          spacing * (columns - 1)) /
+                                      columns;
+                                  return Wrap(
+                                    spacing: spacing,
+                                    runSpacing: spacing,
+                                    children: [
+                                      for (final arrival in route.arrivals)
+                                        SizedBox(
+                                          width: badgeWidth,
+                                          child: _buildArrivalBadge(
+                                            arrival,
+                                            colors,
+                                            serviceNumber: route.serviceNumber,
+                                            showCountdown:
+                                                !isFallback && !isStale,
+                                          ),
+                                        ),
+                                    ],
+                                  );
+                                },
+                              ),
                       ),
                     ],
                   ),

@@ -68,6 +68,48 @@ class BusArrivalsSnapshot {
   /// True when the snapshot came from the bundled timetable rather than LTA.
   final bool isFallback;
 
+  /// Keep available live predictions and fill missing supported routes with
+  /// the bundled timetable for this boarding stop.
+  BusArrivalsSnapshot withScheduledFallback(DateTime now) {
+    if (isFallback || stop.code != BusStopConfig.forDirection(direction).code) {
+      return this;
+    }
+
+    final scheduled = StaticBusSchedule.forDirection(
+      direction: direction,
+      now: now,
+    );
+    final combinedRoutes = <BusRouteArrivals>[];
+    for (final serviceNumber in ['41', '77']) {
+      final matchingRoutes = routes.where(
+        (route) => route.serviceNumber == serviceNumber,
+      );
+      final upcomingArrivals =
+          matchingRoutes
+              .expand((route) => route.arrivals)
+              .where((arrival) => !arrival.estimatedArrival.isBefore(now))
+              .toList()
+            ..sort((a, b) => a.estimatedArrival.compareTo(b.estimatedArrival));
+      combinedRoutes.add(
+        upcomingArrivals.isNotEmpty
+            ? BusRouteArrivals(
+                serviceNumber: serviceNumber,
+                arrivals: List.unmodifiable(upcomingArrivals.take(3)),
+              )
+            : scheduled.routes.firstWhere(
+                (route) => route.serviceNumber == serviceNumber,
+              ),
+      );
+    }
+
+    return BusArrivalsSnapshot(
+      direction: direction,
+      stop: stop,
+      fetchedAt: fetchedAt,
+      routes: List.unmodifiable(combinedRoutes),
+    );
+  }
+
   factory BusArrivalsSnapshot.fromJson(Map<String, dynamic> json) {
     final directionName = json['direction'];
     final direction = Direction.values.where(
@@ -197,10 +239,11 @@ class StaticBusSchedule {
       singaporeNow.day,
     );
     // After-midnight departures belong to the previous service day. Include
-    // both service days so the fallback remains useful around midnight.
+    // the next service day so the fallback also works after the last bus.
     for (final serviceDate in [
       currentDate.subtract(const Duration(days: 1)),
       currentDate,
+      currentDate.add(const Duration(days: 1)),
     ]) {
       final day = _scheduleFor(serviceDate);
       _appendDepartures(

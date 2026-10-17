@@ -186,9 +186,48 @@ void main() {
     await tester.pump();
 
     expect(find.text('in 5 min'), findsOneWidget);
-    expect(find.text('Live ETA'), findsOneWidget);
+    expect(find.text('Live + scheduled'), findsOneWidget);
     expect(find.text(DateFormat('HH:mm').format(arrival)), findsOneWidget);
+    expect(find.text('77'), findsOneWidget);
+    expect(find.text('No ETA available'), findsNothing);
 
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('next-day arrivals include their Singapore calendar date', (
+    tester,
+  ) async {
+    final now = BusSchedule.now();
+    final arrival = now.add(const Duration(days: 1));
+    final snapshot = BusArrivalsSnapshot(
+      direction: Direction.forettToBeautyWorld,
+      stop: BusStopConfig.forDirection(Direction.forettToBeautyWorld),
+      fetchedAt: now,
+      routes: [
+        BusRouteArrivals(
+          serviceNumber: '41',
+          arrivals: [BusArrival(estimatedArrival: arrival, monitored: false)],
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: HomeScreen(
+          onDirectionChanged: (_) {},
+          arrivalRepository: _LiveArrivalsRepository(snapshot),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text(DateFormat('d MMM').format(arrival)), findsWidgets);
+    expect(
+      find.byTooltip(
+        'Route 41 · ${DateFormat('d MMM, HH:mm').format(arrival)} · Scheduled',
+      ),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -273,7 +312,7 @@ void main() {
               widget.style?.fontSize == 14 &&
               const {'Scheduled', 'Sched.', 'Sch.', '•'}.contains(widget.data),
         );
-        expect(badges, findsNWidgets(3));
+        expect(badges, findsNWidgets(6));
         for (final element in badges.evaluate()) {
           final render = element.renderObject;
           expect(render, isA<RenderParagraph>());
