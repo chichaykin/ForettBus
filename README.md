@@ -111,9 +111,37 @@ npx wrangler deploy
 
 The Worker preserves the legacy direction-based 41/77 arrival endpoint and
 also accepts five-digit stop codes for custom cards. Place search, stop search
-and bus-only OneMap trip planning require the same app authentication. Configure `ONEMAP_TOKEN` as a
-Worker secret when route search is enabled; never put secret values in
-`wrangler.toml`, source code, tests, or Git history.
+and bus-only OneMap trip planning require the same app authentication.
+Configure OneMap credentials for renewal or a manual `ONEMAP_TOKEN` as Worker
+secrets when route search is enabled; never put secret values in `wrangler.toml`,
+source code, tests, or Git history.
+
+OneMap tokens [last 3 days](https://www.onemap.gov.sg/apidocs/authentication).
+For automatic renewal, configure `ONEMAP_EMAIL` and `ONEMAP_PASSWORD` as
+secrets on the **transport Worker** (`forett-shuttle-api`), then deploy:
+
+```bash
+npx wrangler secret put ONEMAP_EMAIL
+npx wrangler secret put ONEMAP_PASSWORD
+npx wrangler deploy
+```
+
+With both credentials present, the Worker obtains tokens from OneMap, reuses
+them in memory within each running Worker instance, and refreshes on demand
+when less than a minute remains. Cold instances authenticate again; there is
+no scheduled job or persistent token store. An authentication rejection triggers
+at most one renewal and retry, including expiry errors returned inside HTTP 200
+responses. Concurrent authentication requests in one instance are combined.
+Failed authentication returns the existing generic unavailable response, not
+credentials or upstream details. Incomplete credentials fail rather than
+silently falling back to a manual token.
+
+Without these credentials, `ONEMAP_TOKEN` remains supported but must be replaced
+manually every 3 days. In Cloudflare Dashboard use Workers & Pages >
+forett-shuttle-api > Settings > Variables and Secrets, and select **Secret**
+for all three values. Profile > OneMap access links to the official token
+guide and Cloudflare. Residents never enter credentials in the PWA; no secrets
+are included in local preferences, exports, or the Flutter build.
 
 The Web Worker uses its own deployment configuration. Copy
 `worker/wrangler.web.toml.example` to the ignored `worker/wrangler.web.toml`

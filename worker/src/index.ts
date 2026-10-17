@@ -3,6 +3,8 @@ interface Env {
   APP_API_KEY?: string;
   APP_API_KEY_PREVIOUS?: string;
   ONEMAP_TOKEN?: string;
+  ONEMAP_EMAIL?: string;
+  ONEMAP_PASSWORD?: string;
 }
 
 type Direction = "forettToBeautyWorld" | "beautyWorldToForett";
@@ -68,13 +70,80 @@ async function fetchLtaDataset(path: string, env: Env): Promise<unknown> {
   return await response.json();
 }
 
+type OneMapToken = { value: string; expiresAt: number };
+type OneMapSession = { token?: OneMapToken; pending?: Promise<OneMapToken> };
+const oneMapSessions = new WeakMap<Env, OneMapSession>();
+
+async function oneMapToken(env: Env, rejectedToken?: string): Promise<string> {
+  if (!env.ONEMAP_EMAIL && !env.ONEMAP_PASSWORD) {
+    if (!env.ONEMAP_TOKEN) throw new Error("OneMap authentication is not configured");
+    return env.ONEMAP_TOKEN;
+  }
+  if (!env.ONEMAP_EMAIL || !env.ONEMAP_PASSWORD) {
+    throw new Error("OneMap credentials are incomplete");
+  }
+  let session = oneMapSessions.get(env);
+  if (!session) {
+    session = {};
+    oneMapSessions.set(env, session);
+  }
+  if (session.token && session.token.value !== rejectedToken &&
+      session.token.expiresAt > Date.now() + 60_000) {
+    return session.token.value;
+  }
+  if (session.token?.value === rejectedToken) session.token = undefined;
+  if (!session.pending) {
+    session.pending = (async (): Promise<OneMapToken> => {
+      const response = await fetch("https://www.onemap.gov.sg/api/auth/post/getToken", {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ email: env.ONEMAP_EMAIL, password: env.ONEMAP_PASSWORD }),
+        // Authentication is shared by requests, so it must own its timeout.
+        // A nearly expired caller must not cancel renewal for other callers.
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!response.ok) throw new Error("OneMap authentication failed");
+      const result: unknown = await response.json();
+      if (!result || typeof result !== "object") throw new Error("Invalid OneMap authentication response");
+      const data = result as Record<string, unknown>;
+      const expiresAt = Number(data.expiry_timestamp) * 1_000;
+      if (typeof data.access_token !== "string" || !data.access_token.trim() ||
+          !Number.isFinite(expiresAt) || expiresAt <= Date.now() + 60_000) {
+        throw new Error("Invalid OneMap authentication response");
+      }
+      return { value: data.access_token, expiresAt };
+    })();
+  }
+  const pending = session.pending;
+  try {
+    session.token = await pending;
+    return session.token.value;
+  } finally {
+    if (session.pending === pending) session.pending = undefined;
+  }
+}
+
 async function fetchOneMap(url: URL, env: Env): Promise<unknown> {
-  if (!env.ONEMAP_TOKEN) throw new Error("ONEMAP_TOKEN is not configured");
-  const response = await fetch(url, {
-    headers: { Authorization: env.ONEMAP_TOKEN, accept: "application/json" },
-  });
-  if (!response.ok) throw new Error(`OneMap returned HTTP ${response.status}`);
-  return await response.json();
+  const signal = AbortSignal.timeout(10_000);
+  let token = await oneMapToken(env);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const response = await fetch(url, {
+      headers: { Authorization: token, accept: "application/json" },
+      signal,
+    });
+    const source: unknown = response.ok ? await response.json() : null;
+    const error = source && typeof source === "object" && "error" in source
+      ? String(source.error ?? "") : "";
+    const rejected = response.status === 401 || response.status === 403 ||
+      /token.*(?:expired|invalid)|(?:expired|invalid).*token|unauthori[sz]ed/i.test(error);
+    if (rejected && attempt === 0 && env.ONEMAP_EMAIL && env.ONEMAP_PASSWORD) {
+      token = await oneMapToken(env, token);
+      continue;
+    }
+    if (!response.ok || error) throw new Error("OneMap request failed");
+    return source;
+  }
+  throw new Error("OneMap request failed");
 }
 
 function parseServices(value: string | null): Set<string> | null {
