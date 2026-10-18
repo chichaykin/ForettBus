@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../analytics.dart';
 import '../trip_cards.dart';
 import '../trip_planning.dart';
 
@@ -23,6 +24,10 @@ class _TripCardsScreenState extends State<TripCardsScreen> {
     } else {
       await widget.controller.update(result);
     }
+    if (!mounted) return;
+    AnalyticsService.track('trip_card_saved', {
+      'action': card == null ? 'created' : 'updated',
+    });
   }
 
   Future<void> _delete(TripCard card) async {
@@ -44,7 +49,11 @@ class _TripCardsScreenState extends State<TripCardsScreen> {
       ),
     );
     if (!mounted) return;
-    if (confirmed == true) await widget.controller.remove(card.id);
+    if (confirmed == true) {
+      await widget.controller.remove(card.id);
+      if (!mounted) return;
+      AnalyticsService.track('trip_card_deleted');
+    }
   }
 
   @override

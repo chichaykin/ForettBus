@@ -3,10 +3,12 @@ import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../app_data_backup.dart';
+import '../analytics.dart';
 import '../app_settings.dart';
 import '../notifications.dart';
 import '../schedule.dart';
@@ -44,10 +46,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _notificationsEnabled = false;
   bool _isUpdatingNotifications = false;
   bool _isManagingBackup = false;
+  late bool _usageAnalyticsEnabled;
 
   @override
   void initState() {
     super.initState();
+    _usageAnalyticsEnabled = AnalyticsService.enabled;
     NotificationService().activeReminder.addListener(_handleReminderChanged);
     NotificationService().state.addListener(_handleNotificationStateChanged);
     unawaited(_restoreNotificationState());
@@ -294,6 +298,91 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  Future<void> _openOneMapLink(String url) async {
+    try {
+      final launched = await launchUrl(
+        Uri.parse(url),
+        mode: LaunchMode.externalApplication,
+      );
+      if (!mounted) return;
+      if (!launched) _showMessage('Could not open the website');
+    } on Object {
+      if (mounted) _showMessage('Could not open the website');
+    }
+  }
+
+  void _showOneMapHelp() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => Scaffold(
+          appBar: AppBar(title: const Text('OneMap access')),
+          body: ListView(
+            padding: const EdgeInsets.all(24),
+            children: [
+              Text(
+                'Address search and bus route planning',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'OneMap access tokens last 3 days. Access is managed by the '
+                'app administrator for everyone. Residents do not need to '
+                'obtain or enter a token.',
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Administrator setup',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'In Cloudflare, open Workers & Pages, select '
+                'forett-shuttle-api, then Settings > Variables and Secrets. '
+                'Add your registered OneMap email and password as secrets. '
+                'See the deployment instructions for exact secret names. '
+                'After deploying the updated Worker, '
+                'it obtains a token when needed and renews it on requests '
+                'near expiry '
+                'or retries once if OneMap rejects it.',
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'For manual setup instead, obtain a token using the OneMap '
+                'guide and save it as the OneMap token secret in the same '
+                'Worker. Manual tokens must be replaced every 3 days. '
+                'Never enter tokens or passwords into this app or a backup.',
+              ),
+              const SizedBox(height: 24),
+              OutlinedButton.icon(
+                onPressed: () => _openOneMapLink(
+                  'https://www.onemap.gov.sg/apidocs/authentication',
+                ),
+                icon: const Icon(Icons.open_in_new),
+                label: const Text('OneMap token guide'),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: () =>
+                    _openOneMapLink('https://dash.cloudflare.com/'),
+                icon: const Icon(Icons.open_in_new),
+                label: const Text('Open Cloudflare'),
+              ),
+              const SizedBox(height: 8),
+              TextButton.icon(
+                onPressed: () => _openOneMapLink(
+                  'https://github.com/chichaykin/ForettBus'
+                  '#deploy-the-worker',
+                ),
+                icon: const Icon(Icons.open_in_new),
+                label: const Text('Deployment instructions'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -364,6 +453,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
             value: widget.darkModeEnabled,
             onChanged: widget.onDarkModeChanged,
           ),
+          if (kIsWeb)
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              secondary: const Icon(Icons.bar_chart_outlined),
+              title: const Text('Usage analytics'),
+              subtitle: const Text(
+                'App usage; no routes or addresses are sent',
+              ),
+              value: _usageAnalyticsEnabled,
+              onChanged: (enabled) {
+                AnalyticsService.setEnabled(enabled);
+                setState(
+                  () => _usageAnalyticsEnabled = AnalyticsService.enabled,
+                );
+              },
+            ),
           const _SectionHeading(title: 'Support'),
           const SizedBox(height: 8),
           ListTile(
@@ -404,6 +509,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
               icon: Icons.report_problem_outlined,
               actionUri: Uri(scheme: 'tel', path: _securityPhone),
             ),
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.map_outlined),
+            title: const Text('OneMap access'),
+            subtitle: const Text('Token guide and administrator setup'),
+            onTap: _showOneMapHelp,
           ),
           const SizedBox(height: 24),
           const _SectionHeading(title: 'Data'),

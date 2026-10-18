@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'analytics.dart';
 import 'app_settings.dart';
 import 'notifications.dart';
 import 'schedule.dart';
@@ -22,6 +23,11 @@ Future<void> main() async {
     await BusSchedule.load();
   } on Object {
     // The bundled timetable is always safe to use.
+  }
+  try {
+    AnalyticsService.start();
+  } on Object {
+    // Analytics must never prevent the timetable from opening.
   }
   runApp(ShuttleBusApp(initialSettings: settings));
   unawaited(_initializeNotifications());
@@ -61,6 +67,7 @@ class _ShuttleBusAppState extends State<ShuttleBusApp> {
   @override
   void initState() {
     super.initState();
+    AnalyticsService.track('screen_view', {'screen_name': 'Home'});
     _settings = widget.initialSettings ?? _defaultSettings();
     _darkModeEnabled = _settings.darkModeEnabled;
     _currentDirection = _directionFromLaunchUri() ?? _settings.direction;
@@ -245,6 +252,9 @@ class _MainAppScreenState extends State<MainAppScreen>
           if (index == _currentIndex) return;
           setState(() {
             _currentIndex = index;
+          });
+          AnalyticsService.track('screen_view', {
+            'screen_name': const ['Home', 'Schedule', 'Profile'][index],
           });
           if (MediaQuery.disableAnimationsOf(context)) {
             _tabTransitionController.value = 1;

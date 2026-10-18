@@ -33,6 +33,9 @@ crons = ["* * * * *"]
 
 [vars]
 PUSH_ENABLED = "false"
+# Set this public GA4 Web stream ID only after creating a standard property.
+# Analytics stays off until this ID and the GA4_API_SECRET Worker secret exist.
+GA4_MEASUREMENT_ID = ""
 
 [[ratelimits]]
 name = "READ_RATE_LIMITER"
@@ -61,4 +64,5 @@ simple = { limit = 120, period = 60 }
 
 # Copy to the ignored wrangler.web.production.toml after creating production
 # resources. Configure secrets with `wrangler secret put --config ...`:
-# WEB_TRANSPORT_API_KEY, VAPID_PRIVATE_KEY, VAPID_PUBLIC_KEY, VAPID_SUBJECT
+# WEB_TRANSPORT_API_KEY, VAPID_PRIVATE_KEY, VAPID_PUBLIC_KEY, VAPID_SUBJECT,
+# GA4_API_SECRET

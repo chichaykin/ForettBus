@@ -38,6 +38,102 @@ function environment(overrides: Record<string, unknown> = {}) {
 const sessionCookie = `__Host-forett_session=${"a".repeat(43)}`;
 
 describe("Web Worker routing", () => {
+  it("keeps analytics disabled until production credentials are configured", async () => {
+    const env = environment({
+      GA4_MEASUREMENT_ID: "G-TEST123",
+      GA4_API_SECRET: "server-secret",
+    });
+    const testSite = await handleWebRequest(
+      new Request("https://forett-shuttle-web-test.forett-shuttle-api.workers.dev/api/analytics/config"),
+      env,
+    );
+    expect(await testSite.json()).toEqual({ enabled: false });
+    const production = await handleWebRequest(
+      new Request("https://forett-shuttle-web.forett-shuttle-api.workers.dev/api/analytics/config"),
+      env,
+    );
+    expect(await production.json()).toEqual({ enabled: true, measurementId: "G-TEST123" });
+    expect(production.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("requires the browser session and same origin for offline analytics", async () => {
+    const env = environment({
+      GA4_MEASUREMENT_ID: "G-TEST123",
+      GA4_API_SECRET: "server-secret",
+    });
+    const url = "https://forett-shuttle-web.forett-shuttle-api.workers.dev/api/analytics/events";
+    const body = JSON.stringify({ clientId: "123.456", events: [] });
+    const noSession = await handleWebRequest(new Request(url, {
+      method: "POST", headers: { origin: new URL(url).origin }, body,
+    }), env);
+    expect(noSession.status).toBe(401);
+    const foreignOrigin = await handleWebRequest(new Request(url, {
+      method: "POST", headers: { origin: "https://elsewhere.example", cookie: sessionCookie }, body,
+    }), env);
+    expect(foreignOrigin.status).toBe(403);
+  });
+
+  it("forwards only allowed offline event fields and keeps the API secret server-side", async () => {
+    const outgoing = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", outgoing);
+    try {
+      const env = environment({
+        GA4_MEASUREMENT_ID: "G-TEST123",
+        GA4_API_SECRET: "server-secret",
+      });
+      const url = "https://forett-shuttle-web.forett-shuttle-api.workers.dev/api/analytics/events";
+      const response = await handleWebRequest(new Request(url, {
+        method: "POST",
+        headers: { origin: new URL(url).origin, cookie: sessionCookie, "content-type": "application/json" },
+        body: JSON.stringify({
+          clientId: "123.456",
+          events: [{
+            name: "trip_card_saved", timestampMicros: Date.now() * 1000,
+            params: { action: "created", address: "should not leave the Worker" },
+          }],
+        }),
+      }), env);
+      expect(response.status).toBe(204);
+      expect(outgoing).toHaveBeenCalledOnce();
+      const [target, options] = outgoing.mock.calls[0] as [URL, RequestInit];
+      expect(target.searchParams.get("api_secret")).toBe("server-secret");
+      expect(JSON.parse(String(options.body))).toEqual({
+        client_id: "123.456",
+        events: [{
+          name: "trip_card_saved", timestamp_micros: expect.any(Number),
+          params: { action: "created" },
+        }],
+      });
+      expect(response.headers.get("cache-control")).toBe("no-store");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rejects analytics events older than 72 hours", async () => {
+    const outgoing = vi.fn();
+    vi.stubGlobal("fetch", outgoing);
+    try {
+      const env = environment({
+        GA4_MEASUREMENT_ID: "G-TEST123",
+        GA4_API_SECRET: "server-secret",
+      });
+      const url = "https://forett-shuttle-web.forett-shuttle-api.workers.dev/api/analytics/events";
+      const response = await handleWebRequest(new Request(url, {
+        method: "POST",
+        headers: { origin: new URL(url).origin, cookie: sessionCookie, "content-type": "application/json" },
+        body: JSON.stringify({ clientId: "123.456", events: [{
+          name: "app_open", timestampMicros: (Date.now() - 73 * 60 * 60 * 1000) * 1000,
+          params: {},
+        }] }),
+      }), env);
+      expect(response.status).toBe(400);
+      expect(outgoing).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("returns JSON 404 for an unknown API route without serving the app", async () => {
     const env = environment();
     const response = await handleWebRequest(new Request("https://app.example/api/unknown"), env);

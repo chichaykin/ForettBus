@@ -56,13 +56,20 @@ void main() {
       await tester.tap(find.text('Profile').last);
       await _pumpUi(tester);
       expect(find.text('Management Office'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Back up app data'), 200);
+      await _pumpUi(tester);
       expect(find.text('Back up app data'), findsOneWidget);
       await tester.scrollUntilVisible(find.text('Restore app data'), 200);
       await _pumpUi(tester);
       expect(find.text('Restore app data'), findsOneWidget);
       await tester.scrollUntilVisible(find.text('Dark Mode'), -200);
       await _pumpUi(tester);
-      await tester.tap(find.byType(Switch).last);
+      await tester.tap(
+        find.descendant(
+          of: find.widgetWithText(SwitchListTile, 'Dark Mode'),
+          matching: find.byType(Switch),
+        ),
+      );
       await _pumpUi(tester);
       expect(find.text('Dark theme enabled'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());

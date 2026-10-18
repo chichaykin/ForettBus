@@ -21,6 +21,8 @@ interface Env {
   VAPID_PRIVATE_KEY?: string;
   VAPID_SUBJECT?: string;
   PUSH_ENABLED?: string;
+  GA4_MEASUREMENT_ID?: string;
+  GA4_API_SECRET?: string;
 }
 
 interface Installation {
@@ -53,6 +55,12 @@ const SESSION_COOKIE = "__Host-forett_session";
 const SESSION_DAYS = 180;
 const MAX_BODY_BYTES = 16 * 1024;
 const HOLIDAY_URL = "https://data.gov.sg/api/action/datastore_search?resource_id=d_8ef23381f9417e4d4254ee8b4dcdb176&limit=200";
+const PRODUCTION_WEB_HOST = "forett-shuttle-web.forett-shuttle-api.workers.dev";
+const MAX_ANALYTICS_AGE_MS = 72 * 60 * 60 * 1000;
+const ANALYTICS_EVENTS = new Set([
+  "app_open", "screen_view", "reminder_set", "reminder_cancelled",
+  "trip_card_saved", "trip_card_deleted",
+]);
 const TRANSPORT_PATHS = new Set([
   "/v1/arrivals",
   "/v1/stops/search",
@@ -433,6 +441,85 @@ async function holidays(request: Request): Promise<Response> {
   return new Response(saved.body, { headers: jsonHeaders });
 }
 
+function analyticsConfigured(request: Request, env: Env): boolean {
+  return new URL(request.url).hostname === PRODUCTION_WEB_HOST &&
+    /^G-[A-Z0-9]+$/.test(env.GA4_MEASUREMENT_ID ?? "") &&
+    Boolean(env.GA4_API_SECRET);
+}
+
+async function analyticsApi(request: Request, env: Env, path: string): Promise<Response> {
+  if (path === "/api/analytics/config") {
+    if (request.method !== "GET") return json({ error: "Method not allowed" }, 405, { allow: "GET" });
+    return analyticsConfigured(request, env)
+      ? json({ enabled: true, measurementId: env.GA4_MEASUREMENT_ID })
+      : json({ enabled: false });
+  }
+  if (path !== "/api/analytics/events") return json({ error: "Not found" }, 404);
+  if (request.method !== "POST") return json({ error: "Method not allowed" }, 405, { allow: "POST" });
+  if (!analyticsConfigured(request, env)) return json({ error: "Not found" }, 404);
+  if (!originAllowed(request)) return json({ error: "Invalid origin" }, 403);
+
+  const body = await bodyObject(request);
+  const clientId = body.clientId;
+  const events = body.events;
+  if (typeof clientId !== "string" || clientId.length > 64 || !/^\d+\.\d+$/.test(clientId) ||
+    !Array.isArray(events) || events.length === 0 || events.length > 25) {
+    return json({ error: "Invalid analytics request" }, 400);
+  }
+  const now = Date.now();
+  const validated: { name: string; timestamp_micros: number; params: Record<string, string | number> }[] = [];
+  for (const event of events) {
+    if (!event || typeof event !== "object" || Array.isArray(event)) {
+      return json({ error: "Invalid analytics event" }, 400);
+    }
+    const item = event as Record<string, unknown>;
+    const timestamp = item.timestampMicros;
+    if (typeof item.name !== "string" || !ANALYTICS_EVENTS.has(item.name) ||
+      typeof timestamp !== "number" || !Number.isSafeInteger(timestamp) ||
+      timestamp / 1000 < now - MAX_ANALYTICS_AGE_MS || timestamp / 1000 > now + 60_000) {
+      return json({ error: "Invalid analytics event" }, 400);
+    }
+    const input = item.params;
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+      return json({ error: "Invalid analytics event" }, 400);
+    }
+    const params: Record<string, string | number> = {};
+    const values = input as Record<string, unknown>;
+    if (item.name === "screen_view") {
+      if (!["Home", "Schedule", "Profile"].includes(String(values.screen_name))) {
+        return json({ error: "Invalid analytics event" }, 400);
+      }
+      params.screen_name = String(values.screen_name);
+      params.app_name = "Forett Shuttle";
+    }
+    if (item.name === "trip_card_saved") {
+      if (values.action !== "created" && values.action !== "updated") {
+        return json({ error: "Invalid analytics event" }, 400);
+      }
+      params.action = values.action;
+    }
+    if (item.name === "app_open") params.engagement_time_msec = 1000;
+    validated.push({ name: item.name, timestamp_micros: timestamp, params });
+  }
+
+  const url = new URL("https://www.google-analytics.com/mp/collect");
+  url.searchParams.set("measurement_id", env.GA4_MEASUREMENT_ID!);
+  url.searchParams.set("api_secret", env.GA4_API_SECRET!);
+  try {
+    const upstream = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ client_id: clientId, events: validated }),
+    });
+    return upstream.ok ? new Response(null, { status: 204, headers: jsonHeaders })
+      : json({ error: "Analytics unavailable" }, 502);
+  } catch (_) {
+    // Never put the Measurement Protocol URL, which carries the API secret,
+    // into a Worker log or a response.
+    return json({ error: "Analytics unavailable" }, 502);
+  }
+}
+
 export async function handleWebRequest(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
@@ -444,10 +531,12 @@ export async function handleWebRequest(request: Request, env: Env): Promise<Resp
     const isSessionRoute = url.pathname === "/api/session";
     const isPublicRead =
       request.method === "GET" &&
-      (url.pathname === "/api/push/config" || url.pathname === "/api/holidays");
+      (url.pathname === "/api/push/config" || url.pathname === "/api/holidays" ||
+        url.pathname === "/api/analytics/config");
     const isProtectedRoute =
       url.pathname === "/api/reminder" ||
       url.pathname.startsWith("/api/push/") ||
+      url.pathname === "/api/analytics/events" ||
       url.pathname.startsWith("/api/v1/");
 
     if (!isSessionRoute && !isPublicRead && isProtectedRoute) {
@@ -468,6 +557,7 @@ export async function handleWebRequest(request: Request, env: Env): Promise<Resp
     }
 
     if (url.pathname === "/api/session") return await session(request, env);
+    if (url.pathname.startsWith("/api/analytics/")) return await analyticsApi(request, env, url.pathname);
     if (url.pathname.startsWith("/api/push/")) return await pushApi(request, env, url.pathname);
     if (url.pathname === "/api/reminder") return await reminderApi(request, env);
     if (url.pathname === "/api/holidays") return await holidays(request);

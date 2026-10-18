@@ -127,6 +127,108 @@ void main() {
     );
   });
 
+  test('fills a missing 77 ETA without replacing the live 41 ETA', () {
+    final now = tz.TZDateTime(
+      BusSchedule.singaporeLocation,
+      2026,
+      10,
+      10,
+      15,
+      22,
+    );
+    final live41 = BusArrival(
+      estimatedArrival: now.add(const Duration(minutes: 5)),
+      monitored: true,
+    );
+    final live = BusArrivalsSnapshot(
+      direction: Direction.forettToBeautyWorld,
+      stop: BusStopConfig.forDirection(Direction.forettToBeautyWorld),
+      fetchedAt: now,
+      routes: [
+        BusRouteArrivals(serviceNumber: '41', arrivals: [live41]),
+        const BusRouteArrivals(serviceNumber: '77', arrivals: []),
+      ],
+    );
+
+    final combined = live.withScheduledFallback(now);
+    final scheduled77 = combined.routes.singleWhere(
+      (route) => route.serviceNumber == '77',
+    );
+
+    expect(combined.isFallback, isFalse);
+    expect(combined.fetchedAt, now);
+    expect(combined.routes.first.arrivals.single, same(live41));
+    expect(scheduled77.arrivals, hasLength(3));
+    expect(
+      scheduled77.arrivals.every(
+        (arrival) =>
+            arrival.isScheduled && !arrival.estimatedArrival.isBefore(now),
+      ),
+      isTrue,
+    );
+  });
+
+  test('merges duplicate route entries and keeps their upcoming arrivals', () {
+    final now = BusSchedule.now();
+    final earlier = BusArrival(
+      estimatedArrival: now.add(const Duration(minutes: 2)),
+      monitored: true,
+    );
+    final later = BusArrival(
+      estimatedArrival: now.add(const Duration(minutes: 8)),
+      monitored: true,
+    );
+    final snapshot = BusArrivalsSnapshot(
+      direction: Direction.forettToBeautyWorld,
+      stop: BusStopConfig.forDirection(Direction.forettToBeautyWorld),
+      fetchedAt: now,
+      routes: [
+        const BusRouteArrivals(serviceNumber: '41', arrivals: []),
+        BusRouteArrivals(serviceNumber: '41', arrivals: [later, earlier]),
+      ],
+    ).withScheduledFallback(now);
+
+    expect(snapshot.routes.first.arrivals, [earlier, later]);
+  });
+
+  test(
+    'does not fabricate fallback times for an unsupported boarding stop',
+    () {
+      final now = BusSchedule.now();
+      final snapshot = BusArrivalsSnapshot(
+        direction: Direction.forettToBeautyWorld,
+        stop: const BusStopConfig(code: '12345', name: 'Other stop'),
+        fetchedAt: now,
+        routes: const [],
+      );
+
+      expect(snapshot.withScheduledFallback(now), same(snapshot));
+    },
+  );
+
+  test('shows the next day 77 schedule after its final bus', () {
+    final now = tz.TZDateTime(
+      BusSchedule.singaporeLocation,
+      2026,
+      10,
+      10,
+      23,
+      30,
+    );
+    final snapshot = StaticBusSchedule.forDirection(
+      direction: Direction.forettToBeautyWorld,
+      now: now,
+    );
+    final next77 = snapshot.routes
+        .singleWhere((route) => route.serviceNumber == '77')
+        .arrivals
+        .first;
+
+    expect(next77.isScheduled, isTrue);
+    expect(next77.estimatedArrival.day, 11);
+    expect(next77.estimatedArrival.isAfter(now), isTrue);
+  });
+
   test('normalizes fallback inputs to the Singapore timezone', () {
     final singaporeNow = tz.TZDateTime(
       BusSchedule.singaporeLocation,
