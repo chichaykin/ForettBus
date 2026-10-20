@@ -116,6 +116,21 @@
       text-decoration: none;
     }
 
+    #forett-inapp-banner button.forett-inapp-copy {
+      white-space: nowrap;
+      padding: 6px 10px;
+      border: 1px solid currentColor;
+      border-radius: 20px;
+      background: transparent;
+      color: inherit;
+      font: 600 12px system-ui, -apple-system, sans-serif;
+      cursor: pointer;
+    }
+
+    #forett-inapp-banner {
+      flex-wrap: wrap;
+    }
+
     #forett-inapp-banner button.forett-inapp-close {
       background: transparent;
       border: none;
@@ -180,12 +195,47 @@
       }
 
       if (isAndroidWebView) {
-        const intentUrl = "intent://" + location.host + location.pathname + location.search + "#Intent;scheme=https;action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;end";
+        const pageUrl = location.origin + location.pathname + location.search;
+        const intentUrl = "intent://" + location.host + location.pathname + location.search + "#Intent;scheme=https;package=com.android.chrome;action=android.intent.action.VIEW;end";
         banner.innerHTML = `
-          <span>Open in Chrome for Home Screen install & reminders</span>
-          <a href="${intentUrl}">Open in Chrome</a>
+          <span id="forett-inapp-text">Open in Chrome for Home Screen install &amp; reminders</span>
+          <a id="forett-inapp-open" href="${intentUrl}" role="button">Open in Chrome</a>
+          <button type="button" id="forett-inapp-copy" class="forett-inapp-copy">Copy link</button>
           <button type="button" class="forett-inapp-close" aria-label="Dismiss">✕</button>
         `;
+        const text = banner.querySelector("#forett-inapp-text");
+        const showCopied = (ok) => {
+          text.textContent = ok
+            ? "Link copied. Open Chrome and paste it into the address bar."
+            : "Long-press the address to copy: " + pageUrl;
+        };
+        // Some host apps ignore intent:// links, so the visible fallback is a
+        // copied URL that the resident can paste into any browser.
+        banner.querySelector("#forett-inapp-open").addEventListener("click", () => {
+          window.setTimeout(() => {
+            if (!document.hidden) text.textContent = "Chrome could not be opened from this app. Tap Copy link instead.";
+          }, 1500);
+        });
+        banner.querySelector("#forett-inapp-copy").addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(pageUrl);
+            showCopied(true);
+            return;
+          } catch (_) {}
+          try {
+            const input = document.createElement("textarea");
+            input.value = pageUrl;
+            input.setAttribute("readonly", "");
+            input.style.cssText = "position:fixed;opacity:0;";
+            document.body.appendChild(input);
+            input.select();
+            const ok = document.execCommand("copy");
+            input.remove();
+            showCopied(ok);
+          } catch (_) {
+            showCopied(false);
+          }
+        });
       } else {
         banner.innerHTML = `
           <span>Tap <b>•••</b> or Share → <b>Open in Safari</b> to install on Home Screen</span>
