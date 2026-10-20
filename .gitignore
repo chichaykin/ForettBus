@@ -58,3 +58,4 @@ ios/Runner/GoogleService-Info.plist
 /android/app/release
 .swiftpm/
 migrate_working_dir/
+.playwright-mcp/
