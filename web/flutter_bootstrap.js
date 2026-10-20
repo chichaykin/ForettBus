@@ -2,7 +2,10 @@
 {{flutter_build_config}}
 
 _flutter.loader.load({
-  config: { canvasKitBaseUrl: "/canvaskit/" },
+  // The full CanvasKit variant bundles its own text segmentation and image
+  // codecs. Embedded WebViews often expose incomplete browser versions of them,
+  // which makes Flutter text measure as empty.
+  config: { canvasKitBaseUrl: "/canvaskit/", canvasKitVariant: "full" },
   onEntrypointLoaded: async function (engineInitializer) {
     const appRunner = await engineInitializer.initializeEngine();
     await appRunner.runApp();
