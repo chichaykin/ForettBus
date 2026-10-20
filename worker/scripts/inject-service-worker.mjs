@@ -23,7 +23,7 @@ const result = await injectManifest({
   swDest: resolve(projectDirectory, "build/web/service-worker.js"),
   globDirectory: resolve(projectDirectory, "build/web"),
   globPatterns: [
-    "**/*.{html,js,json,css,png,svg,woff,woff2,wasm}",
+    "**/*.{html,js,json,css,png,svg,woff,woff2,wasm,ttf,otf}",
   ],
   // The current Web build uses CanvasKit. Safari loads the regular bundle,
   // while Chrome may choose the Chromium bundle. Both must be cached offline.

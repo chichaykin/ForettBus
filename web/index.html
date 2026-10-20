@@ -85,6 +85,62 @@
       #forett-loading { color: #e8f2e9; }
       #forett-loading span { color: #b7cbb9; }
     }
+
+    #forett-inapp-banner {
+      position: fixed;
+      top: max(10px, env(safe-area-inset-top));
+      left: max(12px, env(safe-area-inset-left));
+      right: max(12px, env(safe-area-inset-right));
+      z-index: 2147483640;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 14px;
+      border-radius: 14px;
+      background: #203d2b;
+      color: #ffffff;
+      font: 500 13px system-ui, -apple-system, sans-serif;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    }
+
+    #forett-inapp-banner a {
+      display: inline-block;
+      white-space: nowrap;
+      padding: 6px 12px;
+      background: #ffffff;
+      color: #203d2b;
+      border-radius: 20px;
+      font-weight: 600;
+      font-size: 12px;
+      text-decoration: none;
+    }
+
+    #forett-inapp-banner button.forett-inapp-close {
+      background: transparent;
+      border: none;
+      color: #ffffff;
+      font-size: 16px;
+      line-height: 1;
+      padding: 4px;
+      cursor: pointer;
+      opacity: 0.8;
+    }
+
+    #forett-inapp-banner button.forett-inapp-close:hover {
+      opacity: 1;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      #forett-inapp-banner {
+        background: #2a4e38;
+        color: #e8f2e9;
+      }
+      #forett-inapp-banner a {
+        background: #e8f2e9;
+        color: #141d17;
+      }
+    }
   </style>
 </head>
 <body>
@@ -94,6 +150,53 @@
     <span id="forett-loading-message">Loading…</span>
     <button id="forett-retry" type="button" hidden onclick="location.reload()">Try again</button>
   </div>
+  <script>
+    (function checkInApp() {
+      try {
+        if (sessionStorage.getItem("forett-inapp-dismissed")) return;
+      } catch (_) {}
+
+      const ua = navigator.userAgent || "";
+      const isAndroid = /Android/i.test(ua);
+      const isIOS = /iPhone|iPad|iPod/i.test(ua);
+      const isStandalone = (window.navigator.standalone === true) || 
+        (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+      if (isStandalone) return;
+
+      const isAndroidWebView = isAndroid && (/;\s*wv|Version\/[\d.]+/i.test(ua) || /HiLife|FBAN|FBAV|Instagram|Telegram/i.test(ua));
+      const isIOSInApp = isIOS && (/HiLife|FBAN|FBAV|Instagram|Telegram|Line|MicroMessenger|musical_ly|Snapchat/i.test(ua) || (!/Safari/i.test(ua) && /AppleWebKit/i.test(ua)));
+
+      if (!isAndroidWebView && !isIOSInApp) return;
+
+      const banner = document.createElement("div");
+      banner.id = "forett-inapp-banner";
+      banner.setAttribute("role", "alert");
+
+      function dismiss() {
+        try {
+          sessionStorage.setItem("forett-inapp-dismissed", "1");
+        } catch (_) {}
+        banner.remove();
+      }
+
+      if (isAndroidWebView) {
+        const intentUrl = "intent://" + location.host + location.pathname + location.search + "#Intent;scheme=https;action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;end";
+        banner.innerHTML = `
+          <span>Open in Chrome for Home Screen install & reminders</span>
+          <a href="${intentUrl}">Open in Chrome</a>
+          <button type="button" class="forett-inapp-close" aria-label="Dismiss">✕</button>
+        `;
+      } else {
+        banner.innerHTML = `
+          <span>Tap <b>•••</b> or Share → <b>Open in Safari</b> to install on Home Screen</span>
+          <button type="button" class="forett-inapp-close" aria-label="Dismiss">✕</button>
+        `;
+      }
+
+      banner.querySelector(".forett-inapp-close")?.addEventListener("click", dismiss);
+      document.body.appendChild(banner);
+    })();
+  </script>
   <script>
     window.addEventListener("flutter-first-frame", () => {
       document.getElementById("forett-loading")?.remove();

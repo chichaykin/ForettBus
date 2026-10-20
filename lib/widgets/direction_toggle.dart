@@ -21,55 +21,63 @@ class DirectionToggle extends StatelessWidget {
         ? Duration.zero
         : const Duration(milliseconds: 280);
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(30),
-      child: ColoredBox(
-        color: colors.surfaceContainerHighest,
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: AnimatedAlign(
-                duration: duration,
-                curve: Curves.easeInOutCubic,
-                alignment: direction == Direction.forettToBeautyWorld
-                    ? Alignment.centerLeft
-                    : Alignment.centerRight,
-                child: FractionallySizedBox(
-                  widthFactor: 0.5,
-                  heightFactor: 1,
-                  child: DecoratedBox(
-                    key: const Key('direction-selection-indicator'),
-                    decoration: BoxDecoration(
-                      color: colors.primaryContainer,
-                      borderRadius: BorderRadius.circular(30),
+    final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
+    final targetHeight =
+        (multilineLabels ? 56.0 : 48.0) * textScale.clamp(1.0, 2.0);
+
+    return SizedBox(
+      height: targetHeight,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(30),
+        child: ColoredBox(
+          color: colors.surfaceContainerHighest,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: AnimatedAlign(
+                  duration: duration,
+                  curve: Curves.easeInOutCubic,
+                  alignment: direction == Direction.forettToBeautyWorld
+                      ? Alignment.centerLeft
+                      : Alignment.centerRight,
+                  child: FractionallySizedBox(
+                    widthFactor: 0.5,
+                    heightFactor: 1,
+                    child: DecoratedBox(
+                      key: const Key('direction-selection-indicator'),
+                      decoration: BoxDecoration(
+                        color: colors.primaryContainer,
+                        borderRadius: BorderRadius.circular(30),
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-            Row(
-              children: [
-                _buildOption(
-                  context,
-                  value: Direction.forettToBeautyWorld,
-                  label: multilineLabels
-                      ? 'Forett to\nBeauty World'
-                      : 'To Beauty World',
-                  semanticLabel: 'To Beauty World',
-                  duration: duration,
-                ),
-                _buildOption(
-                  context,
-                  value: Direction.beautyWorldToForett,
-                  label: multilineLabels
-                      ? 'Beauty World\nto Forett'
-                      : 'To Forett',
-                  semanticLabel: 'To Forett',
-                  duration: duration,
-                ),
-              ],
-            ),
-          ],
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildOption(
+                    context,
+                    value: Direction.forettToBeautyWorld,
+                    label: multilineLabels
+                        ? 'Forett to\nBeauty World'
+                        : 'To Beauty World',
+                    semanticLabel: 'To Beauty World',
+                    duration: duration,
+                  ),
+                  _buildOption(
+                    context,
+                    value: Direction.beautyWorldToForett,
+                    label: multilineLabels
+                        ? 'Beauty World\nto Forett'
+                        : 'To Forett',
+                    semanticLabel: 'To Forett',
+                    duration: duration,
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -96,22 +104,21 @@ class DirectionToggle extends StatelessWidget {
             child: InkWell(
               onTap: selected ? null : () => onChanged(value),
               borderRadius: BorderRadius.circular(30),
-              child: Padding(
-                padding: EdgeInsets.symmetric(
-                  horizontal: 6,
-                  vertical: multilineLabels ? 13 : 11,
-                ),
-                child: AnimatedDefaultTextStyle(
-                  duration: duration,
-                  curve: Curves.easeInOutCubic,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: selected
-                        ? colors.onPrimaryContainer
-                        : colors.onSurface,
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  child: AnimatedDefaultTextStyle(
+                    duration: duration,
+                    curve: Curves.easeInOutCubic,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: selected
+                          ? colors.onPrimaryContainer
+                          : colors.onSurface,
+                    ),
+                    child: Text(label, textAlign: TextAlign.center),
                   ),
-                  child: Text(label, textAlign: TextAlign.center),
                 ),
               ),
             ),
