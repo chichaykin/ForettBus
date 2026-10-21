@@ -45,7 +45,9 @@ class TripPlannerClient {
     if (!isConfigured) {
       throw const TripPlanningException('Live place search is not configured');
     }
-    final response = await _get('/v1/stops/search', {'q': query});
+    final trimmed = query.trim();
+    if (trimmed.length < 2) return const [];
+    final response = await _get('/v1/stops/search', {'q': trimmed});
     final decoded = jsonDecode(response.body);
     final results = decoded is Map<String, dynamic> ? decoded['results'] : null;
     if (results is! List) return const [];
@@ -79,7 +81,9 @@ class TripPlannerClient {
     if (!isConfigured) {
       throw const TripPlanningException('Live stop search is not configured');
     }
-    final response = await _get('/v1/stops', {'search': query});
+    final trimmed = query.trim();
+    if (trimmed.length < 2) return const [];
+    final response = await _get('/v1/stops', {'search': trimmed});
     final decoded = jsonDecode(response.body);
     final stops = decoded is Map<String, dynamic> ? decoded['stops'] : null;
     if (stops is! List) return const [];

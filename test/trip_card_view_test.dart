@@ -1,8 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shuttle_bus/trip_cards.dart';
 import 'package:shuttle_bus/widgets/trip_card_view.dart';
 import 'package:shuttle_bus/screens/trip_cards_screen.dart';
+import 'package:shuttle_bus/trip_planning.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'support/trip_fixtures.dart';
 
 void main() {
@@ -74,5 +79,46 @@ void main() {
     expect(saved!.title, 'Work');
     expect(saved!.toOrigin.durationMinutes, 42);
     expect(saved!.toOrigin.legs.first.durationMinutes, 10);
+  });
+
+  testWidgets(
+    'editor prompts for destination when finding routes with empty destination',
+    (tester) async {
+      await tester.pumpWidget(const MaterialApp(home: TripCardEditor()));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Find bus routes'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Please enter a destination address first.'),
+        findsOneWidget,
+      );
+      expect(find.text('Planning service unavailable'), findsNothing);
+    },
+  );
+
+  testWidgets('route lookup locks location fields until the response', (
+    tester,
+  ) async {
+    final response = Completer<http.Response>();
+    final planner = TripPlannerClient(
+      baseUrl: 'https://example.test',
+      appApiKey: 'test',
+      client: MockClient((_) => response.future),
+    );
+    await tester.pumpWidget(
+      MaterialApp(home: TripCardEditor(planner: planner)),
+    );
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.at(2), 'Office');
+    await tester.tap(find.text('Find bus routes'));
+    await tester.pump();
+    expect(tester.widget<TextField>(fields.at(1)).enabled, isFalse);
+    expect(tester.widget<TextField>(fields.at(2)).enabled, isFalse);
+    response.complete(http.Response('{"results":[]}', 200));
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(fields.at(1)).enabled, isTrue);
+    expect(tester.widget<TextField>(fields.at(2)).enabled, isTrue);
+    await tester.pumpWidget(const SizedBox());
+    planner.close();
   });
 }

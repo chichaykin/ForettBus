@@ -85,4 +85,26 @@ void main() {
       expect(leg.to.code, '28101');
     },
   );
+
+  test(
+    'searchPlaces and searchStops return empty on queries shorter than 2 chars without network calls',
+    () async {
+      var httpCalls = 0;
+      final client = TripPlannerClient(
+        baseUrl: 'https://example.test',
+        appApiKey: 'test',
+        client: MockClient((request) async {
+          httpCalls++;
+          return http.Response('{}', 200);
+        }),
+      );
+      expect(await client.searchPlaces(''), isEmpty);
+      expect(await client.searchPlaces(' '), isEmpty);
+      expect(await client.searchPlaces('a'), isEmpty);
+      expect(await client.searchStops(''), isEmpty);
+      expect(await client.searchStops('b'), isEmpty);
+      expect(httpCalls, 0);
+      client.close();
+    },
+  );
 }

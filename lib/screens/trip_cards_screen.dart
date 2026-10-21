@@ -118,9 +118,10 @@ class _TripCardsScreenState extends State<TripCardsScreen> {
 }
 
 class TripCardEditor extends StatefulWidget {
-  const TripCardEditor({super.key, this.card});
+  const TripCardEditor({super.key, this.card, this.planner});
 
   final TripCard? card;
+  final TripPlannerClient? planner;
 
   @override
   State<TripCardEditor> createState() => _TripCardEditorState();
@@ -136,11 +137,14 @@ class _TripCardEditorState extends State<TripCardEditor> {
   PlaceSearchResult? _selectedOrigin;
   PlaceSearchResult? _selectedDestination;
   String? _searchNotice;
-  final TripPlannerClient _planner = TripPlannerClient();
+  late final TripPlannerClient _planner;
+  late final bool _ownsPlanner;
 
   @override
   void initState() {
     super.initState();
+    _ownsPlanner = widget.planner == null;
+    _planner = widget.planner ?? TripPlannerClient();
     final card = widget.card;
     _title = TextEditingController(text: card?.title ?? '');
     _origin = TextEditingController(text: card?.originName ?? 'Forett');
@@ -156,13 +160,18 @@ class _TripCardEditorState extends State<TripCardEditor> {
     _destination.dispose();
     _toDestination.dispose();
     _toOrigin.dispose();
-    _planner.close();
+    if (_ownsPlanner) _planner.close();
     super.dispose();
   }
 
   Future<void> _searchDestination() async {
     final query = _destination.text.trim();
-    if (query.length < 2) return;
+    if (query.length < 2) {
+      setState(
+        () => _searchNotice = 'Please enter a destination address first.',
+      );
+      return;
+    }
     setState(() {
       _isSearching = true;
       _searchNotice = null;
@@ -207,18 +216,45 @@ class _TripCardEditorState extends State<TripCardEditor> {
 
   Future<void> _findRoutes() async {
     if (_isSearching) return;
+    final originQuery = _origin.text.trim();
+    final destinationQuery = _destination.text.trim();
+    final selectedOrigin =
+        _selectedOrigin != null &&
+            (_selectedOrigin!.name == originQuery ||
+                _selectedOrigin!.address == originQuery)
+        ? _selectedOrigin
+        : null;
+    final selectedDestination =
+        _selectedDestination != null &&
+            (_selectedDestination!.name == destinationQuery ||
+                _selectedDestination!.address == destinationQuery)
+        ? _selectedDestination
+        : null;
+    if (selectedDestination == null && destinationQuery.length < 2) {
+      setState(
+        () => _searchNotice = 'Please enter a destination address first.',
+      );
+      return;
+    }
+    if (selectedOrigin == null && originQuery.length < 2) {
+      setState(
+        () => _searchNotice =
+            'Search for an address or postal code for both locations.',
+      );
+      return;
+    }
     setState(() {
       _isSearching = true;
       _searchNotice = null;
     });
     try {
       final origin =
-          _selectedOrigin ??
-          (await _planner.searchPlaces(_origin.text.trim())).firstOrNull;
+          selectedOrigin ??
+          (await _planner.searchPlaces(originQuery)).firstOrNull;
       if (!mounted) return;
       final destination =
-          _selectedDestination ??
-          (await _planner.searchPlaces(_destination.text.trim())).firstOrNull;
+          selectedDestination ??
+          (await _planner.searchPlaces(destinationQuery)).firstOrNull;
       if (!mounted) return;
       if (origin == null || destination == null) {
         setState(
@@ -277,9 +313,17 @@ class _TripCardEditorState extends State<TripCardEditor> {
 
   Future<void> _pickStop(_LegDraft leg, bool from) async {
     final controller = from ? leg.fromController : leg.toController;
+    final query = controller.text.trim();
+    if (query.length < 2) {
+      setState(
+        () => _searchNotice =
+            'Enter at least 2 characters or a five-digit stop code.',
+      );
+      return;
+    }
     List<TransitStop> results;
     try {
-      results = await _planner.searchStops(controller.text.trim());
+      results = await _planner.searchStops(query);
     } on TripPlanningException catch (error) {
       if (mounted) setState(() => _searchNotice = error.message);
       return;
@@ -415,6 +459,7 @@ class _TripCardEditorState extends State<TripCardEditor> {
           const SizedBox(height: 12),
           TextField(
             controller: _origin,
+            enabled: !_isSearching,
             onChanged: (_) => _selectedOrigin = null,
             decoration: const InputDecoration(
               labelText: 'Origin',
@@ -424,6 +469,7 @@ class _TripCardEditorState extends State<TripCardEditor> {
           const SizedBox(height: 12),
           TextField(
             controller: _destination,
+            enabled: !_isSearching,
             onChanged: (_) => _selectedDestination = null,
             decoration: InputDecoration(
               labelText: 'Destination address',
