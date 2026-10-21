@@ -10,6 +10,7 @@ import 'package:shuttle_bus/trip_cards.dart';
 import 'package:shuttle_bus/widgets/direction_toggle.dart';
 
 import '../test/support/trip_fixtures.dart';
+import '../test/support/home_layout_fixture.dart';
 
 class _NoPublicLive implements BusArrivalsRepository {
   @override
@@ -90,6 +91,44 @@ void main() {
   );
 
   for (final brightness in Brightness.values) {
+    testWidgets('adaptive Home on Pixel: ${brightness.name}', (tester) async {
+      final preferences = await SharedPreferences.getInstance();
+      final controller = TripCardsController(preferences: preferences);
+      await controller.load();
+      final repository = PreviewTripArrivals();
+      await tester.pumpWidget(
+        HomeLayoutPreview(
+          controller: controller,
+          tripRepository: repository,
+          brightness: brightness,
+        ),
+      );
+      await _pumpUi(tester);
+      await binding.convertFlutterSurfaceToImage();
+      await tester.pump();
+      await binding.takeScreenshot('home-two-${brightness.name}');
+      await controller.add(testTripCard);
+      await _pumpUi(tester);
+      expect(
+        tester.getBottomLeft(find.text('Route details')).dy,
+        lessThan(tester.getTopLeft(find.byType(NavigationBar)).dy),
+      );
+      await binding.takeScreenshot('home-three-${brightness.name}');
+      await controller.add(
+        testTripCard.copyWith(id: 'office', title: 'Office'),
+      );
+      await _pumpUi(tester);
+      await binding.takeScreenshot('home-stack-${brightness.name}');
+      await tester.ensureVisible(find.byTooltip('Show Office trip'));
+      await tester.tap(find.byTooltip('Show Office trip'));
+      await _pumpUi(tester);
+      await tester.ensureVisible(find.text('To Office'));
+      await binding.takeScreenshot('home-stack-expanded-${brightness.name}');
+      await tester.pumpWidget(const SizedBox());
+      controller.dispose();
+      repository.close();
+    });
+
     testWidgets('trip card on Pixel: ${brightness.name}', (tester) async {
       final preferences = await SharedPreferences.getInstance();
       final controller = TripCardsController(preferences: preferences);

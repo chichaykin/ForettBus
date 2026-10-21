@@ -24,6 +24,8 @@ with the next shuttle departure at 08:30 and the scheduled public-bus fallback.
 - Live ETA predictions for public buses 41 and 77.
 - User-configured trip cards with independent outbound/return directions,
   multiple bus legs, and saved transfer points.
+- Adaptive Home cards: a larger shuttle when there are two cards, compact
+  summaries for three, and expandable stacked trips with scrolling as needed.
 - A clearly labelled scheduled timetable fallback when live data is unavailable.
 - Optional five-minute shuttle reminders using native Android alarms or Web
   Push from an installed PWA.

@@ -9,6 +9,7 @@ import '../bus_arrivals.dart';
 import '../notifications.dart';
 import '../schedule.dart';
 import '../trip_cards.dart';
+import '../widgets/adaptive_home_column.dart';
 import '../widgets/direction_toggle.dart';
 import '../widgets/trip_card_view.dart';
 import 'trip_cards_screen.dart';
@@ -24,6 +25,7 @@ class HomeScreen extends StatefulWidget {
     this.arrivalRepository,
     this.tripCardsController,
     this.tripArrivalRepository,
+    this.clock = BusSchedule.now,
   });
 
   final bool isActive;
@@ -32,6 +34,7 @@ class HomeScreen extends StatefulWidget {
   final BusArrivalsRepository? arrivalRepository;
   final TripCardsController? tripCardsController;
   final HttpBusStopArrivalsRepository? tripArrivalRepository;
+  final DateTime Function() clock;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -43,7 +46,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   late final HttpBusStopArrivalsRepository _tripArrivalRepository;
   late final bool _ownsTripArrivalRepository;
 
-  DateTime _now = BusSchedule.now();
+  late DateTime _now;
   Timer? _timer;
   Timer? _arrivalTimer;
   bool _isAppActive = true;
@@ -59,12 +62,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isFetchingArrivals = false;
   int _arrivalRequestRevision = 0;
   final Map<String, StopArrivalsSnapshot> _tripStops = {};
+  final Map<String, bool> _tripCardExpansion = {};
   bool _isFetchingTripArrivals = false;
   int _tripArrivalRevision = 0;
 
   @override
   void initState() {
     super.initState();
+    _now = widget.clock();
     _ownsArrivalRepository = widget.arrivalRepository == null;
     _arrivalRepository =
         widget.arrivalRepository ?? HttpBusArrivalsRepository();
@@ -85,6 +90,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void didUpdateWidget(HomeScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.tripCardsController != widget.tripCardsController) {
+      oldWidget.tripCardsController?.removeListener(_handleTripCardsChanged);
+      widget.tripCardsController?.addListener(_handleTripCardsChanged);
+      _tripCardExpansion.clear();
+      _tripStops.clear();
+      _tripArrivalRevision++;
+      if (_shouldRun) unawaited(_refreshTripArrivals());
+    }
     if (oldWidget.isActive != widget.isActive) {
       if (_shouldRun) {
         _refreshClock(rebuild: false);
@@ -131,7 +144,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _refreshClock({bool rebuild = true}) {
-    final now = BusSchedule.now();
+    final now = widget.clock();
     if (rebuild && mounted) {
       setState(() => _applyNow(now));
     } else {
@@ -173,7 +186,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _handleTripCardsChanged() {
     _tripArrivalRevision++;
     if (!mounted) return;
-    setState(() => _tripStops.clear());
+    setState(() {
+      _tripStops.clear();
+      final ids = widget.tripCardsController!.cards
+          .map((card) => card.id)
+          .toSet();
+      _tripCardExpansion.removeWhere((id, _) => !ids.contains(id));
+    });
     if (_shouldRun) unawaited(_refreshTripArrivals());
   }
 
@@ -265,7 +284,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           widget.direction != direction) {
         return;
       }
-      final snapshot = liveSnapshot.withScheduledFallback(BusSchedule.now());
+      final snapshot = liveSnapshot.withScheduledFallback(widget.clock());
       final hasArrivals = snapshot.routes.any(
         (route) => route.arrivals.isNotEmpty,
       );
@@ -472,6 +491,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     required DateTime? nextBus,
     required bool isReminderSet,
     required bool hasHolidayCalendar,
+    required bool compact,
   }) {
     final hasEnded = !isOperating || nextBus == null;
     if (hasEnded) {
@@ -548,15 +568,40 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       );
     }
 
+    final countdown = Text(
+      _formatDuration(nextBus.difference(_now)),
+      maxLines: 1,
+      style: TextStyle(
+        fontSize: compact ? 56 : 80,
+        fontWeight: FontWeight.bold,
+        fontFeatures: const [FontFeature.tabularFigures()],
+        color: colors.onSurface,
+        letterSpacing: -2,
+      ),
+    );
+    final departure = Text(
+      'Departs at ${_formatSingaporeTime(nextBus)}',
+      textAlign: TextAlign.center,
+      style: TextStyle(
+        fontSize: 16,
+        fontWeight: FontWeight.w600,
+        color: colors.primary,
+      ),
+    );
+
     return Container(
-      constraints: const BoxConstraints(minHeight: 320),
+      key: const Key('shuttle-card'),
+      constraints: BoxConstraints(minHeight: compact ? 180 : 320),
       decoration: BoxDecoration(
         color: colors.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(24),
       ),
       child: Center(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          padding: EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: compact ? 12 : 24,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -577,49 +622,43 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ),
                 ],
               ),
-              const SizedBox(height: 18),
-              Text(
-                'Next departure in',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w600,
-                  color: colors.onSurface,
-                ),
-              ),
-              const SizedBox(height: 12),
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(
-                  _formatDuration(nextBus.difference(_now)),
-                  maxLines: 1,
-                  style: TextStyle(
-                    fontSize: 72,
-                    fontWeight: FontWeight.bold,
-                    color: colors.onSurface,
-                    letterSpacing: -2,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 6),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.schedule, size: 18, color: colors.primary),
-                  const SizedBox(width: 6),
-                  Flexible(
-                    child: Text(
-                      'Departs at ${_formatSingaporeTime(nextBus)}',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: colors.primary,
-                      ),
+              if (compact) ...[
+                const SizedBox(height: 4),
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 16,
+                  runSpacing: 4,
+                  children: [
+                    FittedBox(fit: BoxFit.scaleDown, child: countdown),
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Next departure in',
+                          style: TextStyle(color: colors.onSurfaceVariant),
+                        ),
+                        departure,
+                      ],
                     ),
+                  ],
+                ),
+              ] else ...[
+                const SizedBox(height: 18),
+                Text(
+                  'Next departure in',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                    color: colors.onSurface,
                   ),
-                ],
-              ),
-              const SizedBox(height: 24),
+                ),
+                const SizedBox(height: 12),
+                FittedBox(fit: BoxFit.scaleDown, child: countdown),
+                const SizedBox(height: 6),
+                departure,
+              ],
+              SizedBox(height: compact ? 8 : 24),
               ElevatedButton.icon(
                 onPressed: _isUpdatingReminder || !hasHolidayCalendar
                     ? null
@@ -652,9 +691,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   side: BorderSide(
                     color: isReminderSet ? colors.primary : colors.outline,
                   ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 14,
+                  minimumSize: const Size(0, 44),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: compact ? 12 : 20,
+                    vertical: compact ? 8 : 14,
                   ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(24),
@@ -711,13 +751,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         label:
             'Route $serviceNumber, $arrivalStatus, arrives at $accessibleTime',
         child: Container(
-          constraints: const BoxConstraints(minWidth: 68, minHeight: 44),
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
-          decoration: BoxDecoration(
-            color: colors.surface,
-            border: Border.all(color: colors.outlineVariant),
-            borderRadius: BorderRadius.circular(12),
-          ),
+          constraints: const BoxConstraints(minHeight: 44),
+          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 3),
           child: LayoutBuilder(
             builder: (context, constraints) {
               final compactStatus = arrival.isScheduled
@@ -914,10 +949,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ],
             ),
             Text(
-              '${BusStopConfig.forDirection(widget.direction).name} · routes 41 and 77',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 14, color: colors.onSurfaceVariant),
+              BusStopConfig.forDirection(widget.direction).name,
+              style: TextStyle(fontSize: 13, color: colors.onSurfaceVariant),
             ),
             if (snapshot != null)
               _buildArrivalStatus(
@@ -954,7 +987,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             if (visibleRoutes.isNotEmpty) ...[
               for (final route in visibleRoutes)
                 Padding(
-                  padding: const EdgeInsets.only(top: 8),
+                  padding: const EdgeInsets.only(top: 4),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1026,12 +1059,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildTripCard(TripCard card, ColorScheme colors) => TripCardView(
+  Widget _buildTripCard(
+    TripCard card, {
+    required bool collapsed,
+    required bool stacked,
+    VoidCallback? onToggleExpanded,
+  }) => TripCardView(
     key: ValueKey(card.id),
     card: card,
     stops: _tripStops,
     now: _now,
     isLoading: _isFetchingTripArrivals,
+    compact: true,
+    collapsed: collapsed,
+    stacked: stacked,
+    onToggleExpanded: onToggleExpanded,
     onDirectionChanged: (direction) =>
         widget.tripCardsController?.selectDirection(card.id, direction),
     onEdit: () => _editTripCard(card),
@@ -1052,47 +1094,62 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final isCompact = constraints.maxHeight < 720;
+            final cards = widget.tripCardsController?.cards ?? <TripCard>[];
+            final compactShuttle =
+                cards.isNotEmpty || constraints.maxHeight < 650;
+            final padding = constraints.maxHeight < 820 ? 8.0 : 12.0;
             return SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(
-                isCompact ? 16 : 24,
-                isCompact ? 12 : 24,
-                isCompact ? 16 : 24,
-                isCompact ? 16 : 24,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  SizedBox(height: isCompact ? 0 : 8),
-                  DirectionToggle(
-                    direction: widget.direction,
-                    onChanged: _selectDirection,
-                    multilineLabels: !isCompact,
+              key: const Key('home-scroll'),
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: padding),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: (constraints.maxHeight - padding * 2).clamp(
+                    0,
+                    double.infinity,
                   ),
-                  SizedBox(height: isCompact ? 12 : 16),
-                  _buildShuttleCard(
-                    colors: colors,
-                    isOperating: isOperating,
-                    nextBus: nextBus,
-                    isReminderSet: isReminderSet,
-                    hasHolidayCalendar: hasHolidayCalendar,
-                  ),
-                  SizedBox(height: isCompact ? 12 : 16),
-                  _buildPublicBusesCard(colors),
-                  if (widget.tripCardsController != null)
-                    AnimatedBuilder(
-                      animation: widget.tripCardsController!,
-                      builder: (context, _) => Column(
+                ),
+                child: AdaptiveHomeColumn(
+                  expandIndex: isOperating && nextBus != null ? 1 : null,
+                  spacing: padding,
+                  children: [
+                    DirectionToggle(
+                      direction: widget.direction,
+                      onChanged: _selectDirection,
+                    ),
+                    _buildShuttleCard(
+                      colors: colors,
+                      isOperating: isOperating,
+                      nextBus: nextBus,
+                      isReminderSet: isReminderSet,
+                      hasHolidayCalendar: hasHolidayCalendar,
+                      compact: compactShuttle,
+                    ),
+                    _buildPublicBusesCard(colors),
+                    if (cards.isNotEmpty)
+                      AdaptiveHomeColumn(
+                        spacing: cards.length > 1 ? -8 : 0,
                         children: [
-                          for (final card
-                              in widget.tripCardsController!.cards) ...[
-                            const SizedBox(height: 12),
-                            _buildTripCard(card, colors),
-                          ],
+                          for (var index = 0; index < cards.length; index++)
+                            _buildTripCard(
+                              cards[index],
+                              stacked: index > 0,
+                              collapsed:
+                                  cards.length > 1 &&
+                                  !(_tripCardExpansion[cards[index].id] ??
+                                      index == 0),
+                              onToggleExpanded: cards.length > 1
+                                  ? () => setState(() {
+                                      final id = cards[index].id;
+                                      _tripCardExpansion[id] =
+                                          !(_tripCardExpansion[id] ??
+                                              index == 0);
+                                    })
+                                  : null,
+                            ),
                         ],
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
             );
           },

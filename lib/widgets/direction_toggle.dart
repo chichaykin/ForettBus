@@ -110,7 +110,7 @@ class DirectionToggle extends StatelessWidget {
                   child: AnimatedDefaultTextStyle(
                     duration: duration,
                     curve: Curves.easeInOutCubic,
-                    style: TextStyle(
+                    style: Theme.of(context).textTheme.labelLarge!.copyWith(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
                       color: selected

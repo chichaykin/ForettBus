@@ -16,6 +16,10 @@ class TripCardView extends StatelessWidget {
     required this.onDirectionChanged,
     required this.onEdit,
     this.isLoading = false,
+    this.compact = false,
+    this.collapsed = false,
+    this.stacked = false,
+    this.onToggleExpanded,
   });
 
   final TripCard card;
@@ -24,6 +28,10 @@ class TripCardView extends StatelessWidget {
   final ValueChanged<TripDirection> onDirectionChanged;
   final VoidCallback onEdit;
   final bool isLoading;
+  final bool compact;
+  final bool collapsed;
+  final bool stacked;
+  final VoidCallback? onToggleExpanded;
 
   String _time(DateTime value) => DateFormat(
     'HH:mm',
@@ -68,14 +76,37 @@ class TripCardView extends StatelessWidget {
       0,
       (sum, leg) => sum + (leg.durationMinutes ?? 0),
     );
+    final collapsedRoute = [
+      card.selectedLabel,
+      if (busLegs.isNotEmpty)
+        'Bus ${busLegs.map((leg) => leg.services.join(' / ')).join(' → ')}',
+    ].join(' · ');
+    final collapsedStop = [
+      if (first != null) 'Board at ${_place(first.from.name)}',
+      if (boarding != null) ...[
+        _countdown(boarding),
+        boarding.arrival.monitored ? 'Live' : 'Scheduled',
+      ] else if (stale)
+        'Update needed',
+    ].join(' · ');
 
     return Card(
       margin: EdgeInsets.zero,
       color: colors.surfaceContainerHighest,
       elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: stacked
+            ? BorderSide(color: colors.outlineVariant)
+            : BorderSide.none,
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.fromLTRB(
+          compact ? 12 : 16,
+          (compact ? 4 : 16) + (stacked ? 8 : 0),
+          compact ? 12 : 16,
+          compact ? 8 : 16,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -84,10 +115,19 @@ class TripCardView extends StatelessWidget {
                 Icon(Icons.route_outlined, color: colors.primary),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    card.title,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
+                  child: InkWell(
+                    onTap: onToggleExpanded,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Text(
+                        card.title,
+                        style:
+                            (compact
+                                    ? Theme.of(context).textTheme.titleMedium
+                                    : Theme.of(context).textTheme.titleLarge)
+                                ?.copyWith(fontWeight: FontWeight.bold),
+                      ),
                     ),
                   ),
                 ),
@@ -96,162 +136,222 @@ class TripCardView extends StatelessWidget {
                   tooltip: 'Edit ${card.title}',
                   icon: const Icon(Icons.edit_outlined),
                 ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            SegmentedButton<TripDirection>(
-              showSelectedIcon: false,
-              segments: [
-                ButtonSegment(
-                  value: TripDirection.toDestination,
-                  label: Text('To ${card.destinationLabel}'),
-                ),
-                ButtonSegment(
-                  value: TripDirection.toOrigin,
-                  label: Text('To ${card.originLabel}'),
-                ),
-              ],
-              selected: {card.selectedDirection},
-              onSelectionChanged: (values) => onDirectionChanged(values.single),
-            ),
-            const SizedBox(height: 16),
-            if (first != null) ...[
-              Text(
-                boarding?.connectionChecked == true
-                    ? 'Next bus for your trip'
-                    : 'Next bus at the stop',
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: colors.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Wrap(
-                spacing: 12,
-                runSpacing: 4,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  Text(
-                    'Bus ${boarding?.service ?? first.services.join(' / ')}',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Text(
-                    boarding != null
-                        ? _countdown(boarding)
-                        : isLoading
-                        ? 'Checking…'
-                        : stale
-                        ? 'Update needed'
-                        : 'No prediction',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: colors.primary,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-              if (boarding != null)
-                Text(
-                  '${boarding.arrival.monitored ? 'Live · ${_time(boarding.arrival.estimatedArrival)}' : 'Scheduled'} at boarding stop',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colors.onSurfaceVariant,
-                  ),
-                ),
-              const SizedBox(height: 6),
-              Text(
-                '${walking.isEmpty
-                    ? 'Board at'
-                    : approachKnown
-                    ? 'Walk $walkMinutes min to'
-                    : 'Walk to'} ${_place(first.from.name)}',
-              ),
-              if (!approachKnown)
-                Text(
-                  'Walk time unavailable · allow time to reach the stop',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              if (boarding == null && !isLoading)
-                Text(
-                  stale
-                      ? 'Arrival data is over a minute old.'
-                      : 'Try again shortly. Your route is saved.',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-            ],
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                for (var i = 0; i < busLegs.length; i++) ...[
-                  if (i > 0)
-                    Icon(
-                      Icons.arrow_forward,
-                      size: 16,
-                      color: colors.onSurfaceVariant,
-                    ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: colors.surface,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      busLegs[i].services.join(' / '),
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                ],
-                Text(
-                  plan.transferCount == 0
-                      ? 'Direct'
-                      : '${plan.transferCount} transfer${plan.transferCount == 1 ? '' : 's'}',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-            ),
-            if (forecast.arrivalAtDestination != null && first != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                'Estimated arrival ${_time(forecast.arrivalAtDestination!)}',
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-            ],
-            const SizedBox(height: 8),
-            Theme(
-              data: Theme.of(
-                context,
-              ).copyWith(dividerColor: Colors.transparent),
-              child: ExpansionTile(
-                key: ValueKey('${card.id}-${card.selectedDirection.name}'),
-                tilePadding: EdgeInsets.zero,
-                childrenPadding: EdgeInsets.zero,
-                title: const Text('Route details'),
-                children: [
-                  for (var index = 0; index < plan.legs.length; index++)
-                    _leg(
-                      context,
-                      plan.legs[index],
-                      forecast.boardings[index],
-                      transfer:
-                          plan.legs[index].isBus &&
-                          plan.legs.take(index).any((leg) => leg.isBus),
-                    ),
-                  if (forecast.arrivalAtDestination == null)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 8),
-                      child: Text(
-                        'Destination arrival unavailable until all travel times and connections can be estimated.',
+                if (onToggleExpanded != null)
+                  Semantics(
+                    expanded: !collapsed,
+                    child: IconButton(
+                      onPressed: onToggleExpanded,
+                      tooltip:
+                          '${collapsed ? 'Show' : 'Hide'} ${card.title} trip',
+                      icon: Icon(
+                        collapsed ? Icons.expand_more : Icons.expand_less,
                       ),
                     ),
+                  ),
+              ],
+            ),
+            if (collapsed)
+              InkWell(
+                onTap: onToggleExpanded,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(collapsedRoute),
+                      if (collapsedStop.isNotEmpty)
+                        Text(
+                          collapsedStop,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: colors.onSurfaceVariant),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            if (!collapsed) ...[
+              const SizedBox(height: 4),
+              SegmentedButton<TripDirection>(
+                showSelectedIcon: false,
+                segments: [
+                  ButtonSegment(
+                    value: TripDirection.toDestination,
+                    label: Text('To ${card.destinationLabel}'),
+                  ),
+                  ButtonSegment(
+                    value: TripDirection.toOrigin,
+                    label: Text('To ${card.originLabel}'),
+                  ),
+                ],
+                selected: {card.selectedDirection},
+                onSelectionChanged: (values) =>
+                    onDirectionChanged(values.single),
+                style: compact
+                    ? const ButtonStyle(
+                        minimumSize: WidgetStatePropertyAll(Size(0, 44)),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        padding: WidgetStatePropertyAll(
+                          EdgeInsets.symmetric(horizontal: 8),
+                        ),
+                      )
+                    : null,
+              ),
+              SizedBox(height: compact ? 8 : 16),
+              if (first != null) ...[
+                if (!compact)
+                  Text(
+                    boarding?.connectionChecked == true
+                        ? 'Next bus for your trip'
+                        : 'Next bus at the stop',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                if (!compact) const SizedBox(height: 4),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      'Bus ${boarding?.service ?? first.services.join(' / ')}',
+                      style:
+                          (compact
+                                  ? Theme.of(context).textTheme.titleMedium
+                                  : Theme.of(context).textTheme.titleLarge)
+                              ?.copyWith(fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      boarding != null
+                          ? _countdown(boarding)
+                          : isLoading
+                          ? 'Checking…'
+                          : stale
+                          ? 'Update needed'
+                          : 'No prediction',
+                      style:
+                          (compact
+                                  ? Theme.of(context).textTheme.titleMedium
+                                  : Theme.of(context).textTheme.titleLarge)
+                              ?.copyWith(
+                                color: colors.primary,
+                                fontWeight: FontWeight.bold,
+                              ),
+                    ),
+                  ],
+                ),
+                if (boarding != null)
+                  Text(
+                    '${boarding.arrival.monitored ? 'Live · ${_time(boarding.arrival.estimatedArrival)}' : 'Scheduled'} at boarding stop',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                SizedBox(height: compact ? 4 : 6),
+                Text(
+                  '${walking.isEmpty
+                      ? 'Board at'
+                      : approachKnown
+                      ? 'Walk $walkMinutes min to'
+                      : 'Walk to'} ${_place(first.from.name)}',
+                ),
+                if (!approachKnown)
+                  Text(
+                    'Walk time unavailable · allow time to reach the stop',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                if (boarding == null && !isLoading)
+                  Text(
+                    stale
+                        ? 'Arrival data is over a minute old.'
+                        : 'Try again shortly. Your route is saved.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+              ],
+              SizedBox(height: compact ? 8 : 14),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  for (var i = 0; i < busLegs.length; i++) ...[
+                    if (i > 0)
+                      Icon(
+                        Icons.arrow_forward,
+                        size: 16,
+                        color: colors.onSurfaceVariant,
+                      ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: colors.surface,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        busLegs[i].services.join(' / '),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ],
+                  Text(
+                    plan.transferCount == 0
+                        ? 'Direct'
+                        : '${plan.transferCount} transfer${plan.transferCount == 1 ? '' : 's'}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  if (compact &&
+                      forecast.arrivalAtDestination != null &&
+                      first != null)
+                    Text(
+                      'Estimated arrival ${_time(forecast.arrivalAtDestination!)}',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
                 ],
               ),
-            ),
+              if (!compact &&
+                  forecast.arrivalAtDestination != null &&
+                  first != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Estimated arrival ${_time(forecast.arrivalAtDestination!)}',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ],
+              SizedBox(height: compact ? 0 : 8),
+              Theme(
+                data: Theme.of(
+                  context,
+                ).copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  key: ValueKey('${card.id}-${card.selectedDirection.name}'),
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: EdgeInsets.zero,
+                  minTileHeight: compact ? 44 : null,
+                  title: const Text('Route details'),
+                  children: [
+                    for (var index = 0; index < plan.legs.length; index++)
+                      _leg(
+                        context,
+                        plan.legs[index],
+                        forecast.boardings[index],
+                        transfer:
+                            plan.legs[index].isBus &&
+                            plan.legs.take(index).any((leg) => leg.isBus),
+                      ),
+                    if (forecast.arrivalAtDestination == null)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 8),
+                        child: Text(
+                          'Destination arrival unavailable until all travel times and connections can be estimated.',
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),
